@@ -6,7 +6,7 @@ class SemanticIndexingService:
     def __init__(self):
         self.model = None
     
-    def load_model(self, model_name='microsoft/codebert-base'):
+    def load_model(self, model_name='sentence-transformers/msmarco-distilbert-base-v4'):
         self.model = SentenceTransformer(model_name)
         logger.info(f"Loaded semantic indexing model: {model_name}")
     

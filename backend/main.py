@@ -10,7 +10,7 @@ import uvicorn
 from agents.registry import registry
 from agents.corporate import HeadAgent
 from app.services.semantic_index import semantic_indexer
-from backend.app.core.logger import setup_app_logging
+from app.core.logger import setup_app_logging
 from database import init_db
 
 REPOS_DIR = os.path.join(os.path.dirname(__file__), "repos")
