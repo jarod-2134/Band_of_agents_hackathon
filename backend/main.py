@@ -1,13 +1,23 @@
 import asyncio
 import json
+import asyncpg
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 import uvicorn
 
 from agents.registry import registry
 from agents.corporate import HeadAgent
+from services.semantic_index import semantic_indexer
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load the semantic model at startup
+    semantic_indexer.load_model()
+    yield
+    # Perform any necessary cleanup here (if needed)
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
