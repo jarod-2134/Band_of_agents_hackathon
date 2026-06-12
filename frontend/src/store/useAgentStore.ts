@@ -43,7 +43,7 @@ interface AgentState {
   currentDiff: { original: string; modified: string; filePath: string } | null;
   nodes: GraphNode[];
   apiKeys: Record<string, string>;
-  theme: 'light' | 'dark';
+  theme: string;
   currentRepoId: string | null;
 
   // Actions
@@ -57,7 +57,7 @@ interface AgentState {
   setCurrentDiff: (diff: { original: string; modified: string; filePath: string } | null) => void;
   setGraph: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setApiKey: (provider: string, key: string) => void;
-  setTheme: (theme: 'light' | 'dark') => void;
+  setTheme: (theme: string) => void;
 }
 
 let ws: WebSocket | null = null;
@@ -146,10 +146,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   setApiKey: (provider, key) => set((state) => ({ apiKeys: { ...state.apiKeys, [provider]: key } })),
   setTheme: (theme) => {
     set({ theme });
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    const html = document.documentElement;
+    html.classList.forEach(c => {
+      if (c.startsWith('theme-')) html.classList.remove(c);
+    });
+    // Remove old .dark if it was there
+    html.classList.remove('dark');
+    html.classList.add(`theme-${theme}`);
   }
 }));

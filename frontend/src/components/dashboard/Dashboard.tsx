@@ -47,7 +47,7 @@ export function Dashboard() {
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* Sidebar - File Tree */}
-      <div className="w-64 border-r border-border bg-white flex flex-col">
+      <div className="w-64 border-r border-border bg-card flex flex-col">
         <div className="px-4 py-2 border-b border-border font-bold text-xs tracking-widest text-muted-foreground">
           WORKSPACE
         </div>
@@ -57,18 +57,18 @@ export function Dashboard() {
       </div>
 
       {/* Center Canvas */}
-      <div className="flex-1 flex flex-col p-4 gap-4 bg-secondary/30">
+      <div className="flex-1 flex flex-col p-4 gap-4 bg-background">
         
         <div className="flex gap-2">
           <button 
             onClick={() => setActiveTab('graph')}
-            className={`px-4 py-1.5 text-sm font-semibold rounded-md border flex items-center gap-2 ${activeTab === 'graph' ? 'bg-black text-white border-black' : 'bg-white border-border hover:bg-secondary'}`}
+            className={`px-4 py-1.5 text-sm font-semibold rounded-md border flex items-center gap-2 transition-colors ${activeTab === 'graph' ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border hover:bg-secondary'}`}
           >
             <Bot className="w-4 h-4" /> Agents
           </button>
           <button 
             onClick={() => setActiveTab('diff')}
-            className={`px-4 py-1.5 text-sm font-semibold rounded-md border flex items-center gap-2 ${activeTab === 'diff' ? 'bg-black text-white border-black' : 'bg-white border-border hover:bg-secondary'}`}
+            className={`px-4 py-1.5 text-sm font-semibold rounded-md border flex items-center gap-2 transition-colors ${activeTab === 'diff' ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border hover:bg-secondary'}`}
           >
             <Code className="w-4 h-4" /> Diff View
           </button>
