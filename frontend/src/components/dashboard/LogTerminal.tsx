@@ -10,10 +10,10 @@ export function LogTerminal() {
   }, [logs]);
 
   return (
-    <div className="w-full h-full bg-card text-card-foreground border border-border rounded-lg flex flex-col font-mono text-sm overflow-hidden">
-      <div className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold tracking-widest flex justify-between items-center shrink-0">
+    <div className="w-full h-full bg-card text-card-foreground border border-border rounded-lg flex flex-col font-mono text-sm overflow-hidden shadow-sm">
+      <div className="px-4 py-2 bg-secondary border-b border-border text-secondary-foreground text-xs font-bold tracking-widest flex justify-between items-center shrink-0">
         <span>TERMINAL OUTPUT</span>
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2 text-muted-foreground">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
           LIVE
         </span>
