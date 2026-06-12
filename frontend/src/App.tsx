@@ -5,18 +5,25 @@ import { Settings } from './components/dashboard/Settings'
 import { Analytics } from './components/dashboard/Analytics'
 import { TaskHistory } from './components/dashboard/TaskHistory'
 
+import { Home } from './components/landing/Home'
+import { Login } from './components/landing/Login'
+
 function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/history" element={<TaskHistory />} />
-        </Routes>
-      </Layout>
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+
+        {/* Dashboard Routes with Layout */}
+        <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
+        <Route path="/settings" element={<Layout><Settings /></Layout>} />
+        <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
+        <Route path="/history" element={<Layout><TaskHistory /></Layout>} />
+        
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </BrowserRouter>
   )
 }

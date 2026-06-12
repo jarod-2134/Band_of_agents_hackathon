@@ -17,35 +17,9 @@ export function GraphViewer() {
     setManagerStarted(true);
     setShowManagerForm(false);
     
-    // Mock spinning up the manager
-    addLog({ message: `Manager started with instructions: ${instructions}`, type: 'info', agentRole: 'planner' });
-    
-    setGraph([
-      { id: 'manager', data: { label: 'Manager Agent' }, role: 'planner' }
-    ], []);
-
-    // Mock spinning up sub-agents after a delay
-    setTimeout(() => {
-      addLog({ message: `Manager spinning up Engineer agent...`, type: 'info', agentRole: 'planner' });
-      setGraph([
-        { id: 'manager', data: { label: 'Manager Agent' }, role: 'planner' },
-        { id: 'engineer', data: { label: 'Engineer Agent' }, role: 'engineer' }
-      ], [
-        { id: 'e1', source: 'manager', target: 'engineer' }
-      ]);
-      
-      setTimeout(() => {
-         addLog({ message: `Manager spinning up Reviewer agent...`, type: 'info', agentRole: 'planner' });
-         setGraph([
-          { id: 'manager', data: { label: 'Manager Agent' }, role: 'planner' },
-          { id: 'engineer', data: { label: 'Engineer Agent' }, role: 'engineer' },
-          { id: 'reviewer', data: { label: 'Reviewer Agent' }, role: 'reviewer' }
-        ], [
-          { id: 'e1', source: 'manager', target: 'engineer' },
-          { id: 'e2', source: 'manager', target: 'reviewer' }
-        ]);
-      }, 1500);
-    }, 1500);
+    // Send instructions and apiKeys to the backend
+    const store = useAgentStore.getState();
+    store.sendMessage({ type: "start_manager", instructions, apiKeys: store.apiKeys });
   };
 
   return (

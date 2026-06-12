@@ -1,15 +1,42 @@
 import { Save } from 'lucide-react';
+import { useAgentStore } from '@/store/useAgentStore';
 
 export function Settings() {
+  const { apiKeys, setApiKey, theme, setTheme } = useAgentStore();
+
   return (
-    <div className="flex-1 overflow-y-auto p-8 bg-white h-full">
+    <div className="flex-1 overflow-y-auto p-8 bg-white dark:bg-neutral-900 h-full">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8 border-b pb-4">
-          <h1 className="text-2xl font-bold text-neutral-900">Settings</h1>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">Settings</h1>
           <p className="text-neutral-500 mt-1">Configure global parameters for your agent swarm.</p>
         </div>
 
         <div className="space-y-8">
+
+          {/* Appearance Configuration */}
+          <section className="border rounded-lg p-6 bg-neutral-50/50 dark:bg-neutral-800/50">
+            <h2 className="text-lg font-semibold mb-4 text-neutral-800 dark:text-white">Appearance</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1.5 text-neutral-700 dark:text-neutral-300">Theme</label>
+                <div className="flex gap-4">
+                  <button 
+                    onClick={() => setTheme('light')}
+                    className={`px-4 py-2 border rounded-md text-sm font-medium ${theme === 'light' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-neutral-700 hover:bg-neutral-50'}`}
+                  >
+                    Light
+                  </button>
+                  <button 
+                    onClick={() => setTheme('dark')}
+                    className={`px-4 py-2 border rounded-md text-sm font-medium ${theme === 'dark' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-neutral-700 hover:bg-neutral-50 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700'}`}
+                  >
+                    Dark
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
           
           {/* Models Configuration */}
           <section className="border rounded-lg p-6 bg-neutral-50/50">
@@ -50,16 +77,45 @@ export function Settings() {
             <h2 className="text-lg font-semibold mb-4 text-neutral-800">API Keys</h2>
             <div className="space-y-4">
               <div>
+                <label className="block text-sm font-medium mb-1.5 text-neutral-700">Band AI API Key</label>
+                <input 
+                  type="password" 
+                  placeholder="band-..." 
+                  className="w-full max-w-md p-2.5 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm blur-sm focus:blur-none hover:blur-none transition-all" 
+                  value={apiKeys['bandai'] || ''}
+                  onChange={(e) => setApiKey('bandai', e.target.value)}
+                />
+                <p className="text-xs text-neutral-500 mt-1">Key for https://app.band.ai to access all multi-models.</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium mb-1.5 text-neutral-700">OpenAI API Key</label>
-                <input type="password" placeholder="sk-..." className="w-full max-w-md p-2.5 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
+                <input 
+                  type="password" 
+                  placeholder="sk-..." 
+                  className="w-full max-w-md p-2.5 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm blur-sm focus:blur-none hover:blur-none transition-all" 
+                  value={apiKeys['openai'] || ''}
+                  onChange={(e) => setApiKey('openai', e.target.value)}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1.5 text-neutral-700">Anthropic API Key</label>
-                <input type="password" placeholder="sk-ant-..." className="w-full max-w-md p-2.5 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
+                <input 
+                  type="password" 
+                  placeholder="sk-ant-..." 
+                  className="w-full max-w-md p-2.5 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm blur-sm focus:blur-none hover:blur-none transition-all" 
+                  value={apiKeys['anthropic'] || ''}
+                  onChange={(e) => setApiKey('anthropic', e.target.value)}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1.5 text-neutral-700">GitHub Token (for PRs)</label>
-                <input type="password" placeholder="ghp_..." className="w-full max-w-md p-2.5 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm" />
+                <input 
+                  type="password" 
+                  placeholder="ghp_..." 
+                  className="w-full max-w-md p-2.5 border rounded-md bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm blur-sm focus:blur-none hover:blur-none transition-all" 
+                  value={apiKeys['github'] || ''}
+                  onChange={(e) => setApiKey('github', e.target.value)}
+                />
               </div>
             </div>
           </section>
