@@ -1,5 +1,6 @@
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from loguru import logger
 
 class SemanticIndexingService:
     def __init__(self):
@@ -7,7 +8,7 @@ class SemanticIndexingService:
     
     def load_model(self, model_name='microsoft/codebert-base'):
         self.model = SentenceTransformer(model_name)
-        print(f"Model '{model_name}' loaded successfully.")
+        logger.info(f"Loaded semantic indexing model: {model_name}")
     
     def encode_text(self, text):
         if self.model is None:
