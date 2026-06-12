@@ -85,7 +85,7 @@ export function GraphViewer() {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {nodes.map(node => (
+            {nodes?.map(node => (
               <div key={node.id} className="border rounded-lg p-4 bg-white shadow-sm flex flex-col gap-3">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${node.role === 'planner' ? 'bg-indigo-100 text-indigo-600' : node.role === 'engineer' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'}`}>

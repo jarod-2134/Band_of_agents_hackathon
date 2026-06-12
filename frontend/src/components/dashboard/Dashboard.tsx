@@ -10,7 +10,7 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState<'graph' | 'diff'>('graph');
 
   const renderTree = (nodes: FileNode[], depth = 0) => {
-    return nodes.map((node) => (
+    return nodes?.map((node) => (
       <div key={node.path} style={{ paddingLeft: `${depth * 12}px` }}>
         <div 
           className={`flex items-center gap-2 py-1 px-2 hover:bg-secondary cursor-pointer text-sm ${node.status === 'modified' ? 'text-blue-600 font-semibold' : ''}`}
