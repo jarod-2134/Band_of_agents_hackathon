@@ -1,3 +1,11 @@
+# Secrets
+.env.local
+.env.*
+
+# Node
+node_modules/
+dist/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

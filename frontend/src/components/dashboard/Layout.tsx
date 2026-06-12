@@ -21,10 +21,10 @@ export function Layout({ children }: LayoutProps) {
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* Header */}
       <header className="h-12 border-b border-border flex items-center px-4 justify-between bg-white shrink-0 z-10 relative">
-        <div className="flex items-center gap-2 font-bold tracking-tight">
+        <NavLink to="/" className="flex items-center gap-2 font-bold tracking-tight hover:opacity-80 transition-opacity">
           <GitBranch className="w-5 h-5 text-indigo-600" />
           <span>Band AI Control Plane</span>
-        </div>
+        </NavLink>
         <div className="flex items-center gap-2 text-sm">
           <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
           <span className="text-muted-foreground font-mono">{isConnected ? 'Connected' : 'Disconnected'}</span>

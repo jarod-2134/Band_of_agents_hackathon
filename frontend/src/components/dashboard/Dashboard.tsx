@@ -14,14 +14,25 @@ export function Dashboard() {
       <div key={node.path} style={{ paddingLeft: `${depth * 12}px` }}>
         <div 
           className={`flex items-center gap-2 py-1 px-2 hover:bg-secondary cursor-pointer text-sm ${node.status === 'modified' ? 'text-blue-600 font-semibold' : ''}`}
-          onClick={() => {
+          onClick={async () => {
             if (!node.isDir) {
               setActiveTab('diff');
-              setCurrentDiff({
-                filePath: node.path,
-                original: "// Original code\nfunction hello() {\n  console.log('world');\n}",
-                modified: "// Modified by Agent\nfunction hello() {\n  console.log('Agent says hello!');\n}"
-              });
+              const { currentRepoId } = useAgentStore.getState();
+              if (currentRepoId) {
+                try {
+                  const res = await fetch(`http://localhost:8000/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    setCurrentDiff({
+                      filePath: node.path,
+                      original: data.content,
+                      modified: data.content // We'll update this when agents actually modify it
+                    });
+                  }
+                } catch (e) {
+                  console.error("Failed to fetch file content", e);
+                }
+              }
             }
           }}
         >

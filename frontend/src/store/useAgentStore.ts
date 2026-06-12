@@ -42,16 +42,22 @@ interface AgentState {
   logs: LogEntry[];
   currentDiff: { original: string; modified: string; filePath: string } | null;
   nodes: GraphNode[];
-  edges: GraphEdge[];
+  apiKeys: Record<string, string>;
+  theme: 'light' | 'dark';
+  currentRepoId: string | null;
 
   // Actions
+  fetchFileTree: (repoId: string) => Promise<void>;
   connectWebSocket: (repoId: string) => void;
   disconnectWebSocket: () => void;
+  sendMessage: (payload: any) => void;
   setActiveNode: (nodeId: string | null) => void;
   updateFileTree: (tree: FileNode[]) => void;
   addLog: (log: Omit<LogEntry, 'id' | 'timestamp'>) => void;
   setCurrentDiff: (diff: { original: string; modified: string; filePath: string } | null) => void;
   setGraph: (nodes: GraphNode[], edges: GraphEdge[]) => void;
+  setApiKey: (provider: string, key: string) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
 }
 
 let ws: WebSocket | null = null;
@@ -59,22 +65,29 @@ let ws: WebSocket | null = null;
 export const useAgentStore = create<AgentState>((set, get) => ({
   isConnected: false,
   activeNodeId: null,
-  fileTree: [
-    {
-      name: 'src', isDir: true, path: '/src', children: [
-        { name: 'main.py', isDir: false, path: '/src/main.py', status: 'unmodified' },
-        { name: 'utils.py', isDir: false, path: '/src/utils.py', status: 'modified' }
-      ]
-    },
-    { name: 'tests', isDir: true, path: '/tests', children: [] },
-    { name: 'README.md', isDir: false, path: '/README.md', status: 'unmodified' }
-  ],
+  apiKeys: {},
+  theme: 'light',
+  currentRepoId: null,
+  fileTree: [],
   logs: [],
   currentDiff: null,
   nodes: [],
   edges: [],
 
+  fetchFileTree: async (repoId: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/repos/${repoId}/files`);
+      const data = await res.json();
+      set({ fileTree: data.files });
+    } catch (e) {
+      console.error("Failed to fetch file tree", e);
+    }
+  },
+
   connectWebSocket: (repoId: string) => {
+    set({ currentRepoId: repoId });
+    get().fetchFileTree(repoId);
+
     if (ws) {
       ws.close();
     }
@@ -114,6 +127,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
+  sendMessage: (payload: any) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+    }
+  },
+
   setActiveNode: (nodeId) => set({ activeNodeId: nodeId }),
   updateFileTree: (tree) => set({ fileTree: tree }),
   addLog: (log) => set((state) => ({
@@ -123,6 +142,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       timestamp: Date.now()
     }]
   })),
-  setCurrentDiff: (diff) => set({ currentDiff: diff }),
-  setGraph: (nodes, edges) => set({ nodes, edges })
+  setGraph: (nodes, edges) => set({ nodes, edges }),
+  setApiKey: (provider, key) => set((state) => ({ apiKeys: { ...state.apiKeys, [provider]: key } })),
+  setTheme: (theme) => {
+    set({ theme });
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }
 }));

@@ -1,13 +1,27 @@
 import asyncio
 import json
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import os
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from agents.registry import registry
 from agents.corporate import HeadAgent
+from database import init_db
 
-app = FastAPI()
+REPOS_DIR = os.path.join(os.path.dirname(__file__), "repos")
+os.makedirs(REPOS_DIR, exist_ok=True)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database
+    print("Initializing Database...")
+    await init_db()
+    print("Database Initialized.")
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,33 +90,97 @@ async def handle_agent_log(agent_id: str, agent_role: str, message: str, log_typ
 async def websocket_endpoint(websocket: WebSocket, repo_id: str):
     await manager.connect(websocket)
     
-    # Initialize the Corporate Structure
-    ceo = HeadAgent("AI CEO")
-    ceo.set_log_callback(handle_agent_log)
-    registry.register(ceo)
-    asyncio.create_task(ceo.run())
-    
     try:
-        await manager.broadcast(json.dumps({
-            "type": "log",
-            "payload": f"Corporate simulation started for {repo_id}",
-            "logType": "info"
-        }))
-        
-        # Trigger the CEO
-        await ceo.inbox.put({"message": "start"})
-        
         while True:
             data = await websocket.receive_text()
             print(f"Received from {repo_id}: {data}")
             
+            try:
+                payload = json.loads(data)
+                if payload.get("type") == "start_manager":
+                    instructions = payload.get("instructions", "")
+                    api_keys = payload.get("apiKeys", {})
+                    
+                    # Initialize the Corporate Structure on demand
+                    ceo = HeadAgent("AI CEO", instructions=instructions, api_keys=api_keys)
+                    ceo.set_log_callback(handle_agent_log)
+                    registry.register(ceo)
+                    asyncio.create_task(ceo.run())
+                    
+                    await manager.broadcast(json.dumps({
+                        "type": "log",
+                        "payload": f"Corporate simulation started with instructions: {instructions}",
+                        "logType": "info"
+                    }))
+                    
+                    # Trigger the CEO
+                    await ceo.inbox.put({"message": "start", "instructions": instructions})
+            except json.JSONDecodeError:
+                pass
+            
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        # Clean up registry only if no other connections remain
-        if len(manager.active_connections) == 0:
-            registry.agents.clear()
-            if ceo.running:
-                ceo.running = False
+        # Clean up registry
+        registry.agents.clear()
+
+def build_file_tree(dir_path: str, rel_path: str = ""):
+    tree = []
+    try:
+        entries = sorted(os.listdir(dir_path))
+    except FileNotFoundError:
+        return []
+        
+    for entry in entries:
+        if entry in [".git", "node_modules", "venv", "__pycache__", ".venv"]:
+            continue
+            
+        full_path = os.path.join(dir_path, entry)
+        current_rel = os.path.join(rel_path, entry).replace("\\", "/")
+        is_dir = os.path.isdir(full_path)
+        
+        node = {
+            "name": entry,
+            "isDir": is_dir,
+            "path": current_rel,
+            "status": "unmodified"
+        }
+        
+        if is_dir:
+            node["children"] = build_file_tree(full_path, current_rel)
+            
+        tree.append(node)
+        
+    return tree
+
+@app.get("/api/repos/{repo_id}/files")
+async def get_repo_files(repo_id: str):
+    repo_path = os.path.join(REPOS_DIR, repo_id)
+    if not os.path.exists(repo_path):
+        os.makedirs(repo_path, exist_ok=True)
+        # Create a dummy README for new repos
+        with open(os.path.join(repo_path, "README.md"), "w") as f:
+            f.write(f"# Repository: {repo_id}\n\nInitialize your codebase here.")
+            
+    tree = build_file_tree(repo_path)
+    return {"files": tree}
+
+@app.get("/api/repos/{repo_id}/file/{filepath:path}")
+async def get_repo_file(repo_id: str, filepath: str):
+    repo_path = os.path.join(REPOS_DIR, repo_id)
+    target_path = os.path.abspath(os.path.join(repo_path, filepath))
+    
+    if not target_path.startswith(os.path.abspath(repo_path)):
+        raise HTTPException(status_code=403, detail="Path traversal prevented")
+        
+    if not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    try:
+        with open(target_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"content": content}
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Cannot read binary file")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
