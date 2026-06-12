@@ -78,7 +78,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     try {
       const res = await fetch(`http://localhost:8000/api/repos/${repoId}/files`);
       const data = await res.json();
-      set({ fileTree: data.files });
+      set({ fileTree: data.files || [] });
     } catch (e) {
       console.error("Failed to fetch file tree", e);
     }
