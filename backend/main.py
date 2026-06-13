@@ -22,6 +22,13 @@ from app.routers.issues import router as issues_router
 from app.routers.org import router as orgs_router
 from app.routers.members import router as members_router
 from app.routers.traces import router as traces_router
+from app.routers.repos import router as repos_router
+from app.routers.pull_requests import router as pull_requests_router
+from app.routers.agents import router as agents_router
+from app.routers.sprints import router as sprints_router
+from app.routers.analytics import router as analytics_router
+from app.routers.websockets import router as websockets_router
+from app.routers.search import router as search_router
 
 if not hasattr(bcrypt, "__about__"):
     class DummyAbout:
@@ -63,6 +70,13 @@ app.include_router(issues_router)
 app.include_router(orgs_router)
 app.include_router(members_router)
 app.include_router(traces_router)
+app.include_router(repos_router)
+app.include_router(pull_requests_router)
+app.include_router(agents_router)
+app.include_router(sprints_router)
+app.include_router(analytics_router)
+app.include_router(websockets_router)
+app.include_router(search_router)
 
 class ConnectionManager:
     def __init__(self):

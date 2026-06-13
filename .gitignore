@@ -227,3 +227,6 @@ __marimo__/
 
 # SQL dump
 backend/backup
+
+# Backend Repos
+backend/repos
