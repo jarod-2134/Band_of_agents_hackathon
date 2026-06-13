@@ -13,6 +13,11 @@ from app.services.semantic_index import semantic_indexer
 from app.core.logger import setup_app_logging
 from database import init_db
 
+from app.routers.auth import router as auth_router
+from app.routers.issues import router as issues_router
+from app.routers.org import router as orgs_router
+from app.routers.members import members_router
+
 REPOS_DIR = os.path.join(os.path.dirname(__file__), "repos")
 os.makedirs(REPOS_DIR, exist_ok=True)
 
@@ -38,6 +43,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
+app.include_router(issues_router)
+app.include_router(orgs_router)
+app.include_router(members_router)
 
 class ConnectionManager:
     def __init__(self):
