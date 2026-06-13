@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from pydantic import BaseModel, EmailStr
 from database import get_db
-from app.routers.deps import get_current_user, require_member_plus, require_admin_plus, ROLE_WEIGHTS
+from app.routers.deps import get_current_user, require_org_admin, require_org_member
 from datetime import datetime, timedelta, timezone
 from loguru import logger
 
@@ -21,7 +21,7 @@ class UpdateRoleRequest(BaseModel):
 # 1. GET /orgs/{slug}/users - List all members (including agents)
 @router.get("", status_code=status.HTTP_200_OK)
 async def list_org_members(
-    org_context: dict = Depends(require_member_plus),
+    org_context: dict = Depends(require_org_member),
     db: AsyncSession = Depends(get_db)
 ):
     query = text("""
@@ -44,12 +44,9 @@ async def invite_user_to_org(
     payload: InviteRequest,
     background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user),
-    org_context: dict = Depends(require_admin_plus),
+    org_context: dict = Depends(require_org_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    # Hierarchy Check: Cannot invite someone to a role higher/equal to your own
-    if ROLE_WEIGHTS.get(payload.role, 0) >= ROLE_WEIGHTS.get(org_context["user_role"], 0):
-        raise HTTPException(status_code=403, detail="Cannot invite users to roles above or equal to your own tier.")
 
     clean_email = payload.email.lower().strip()
 
@@ -85,7 +82,7 @@ async def invite_user_to_org(
 async def change_member_role(
     id: str,
     payload: UpdateRoleRequest,
-    org_context: dict = Depends(require_admin_plus),
+    org_context: dict = Depends(require_org_admin),
     db: AsyncSession = Depends(get_db)
 ):
     # Check target member's existing role metadata properties
@@ -96,14 +93,6 @@ async def change_member_role(
     
     if not target_row:
         raise HTTPException(status_code=404, detail="Target member not found in this organization.")
-
-    caller_weight = ROLE_WEIGHTS.get(org_context["user_role"], 0)
-    
-    # Hierarchy Guards
-    if ROLE_WEIGHTS.get(target_row.member_role, 0) >= caller_weight:
-        raise HTTPException(status_code=403, detail="Hierarchy violation: Cannot alter a peer or superior's role mapping.")
-    if ROLE_WEIGHTS.get(payload.role, 0) >= caller_weight:
-        raise HTTPException(status_code=403, detail="Hierarchy violation: Cannot elevate a user above or equal to your own tier.")
 
     await db.execute(text(
         "UPDATE org_members SET member_role = :role WHERE org_id = :org_id AND user_id = :user_id;"
@@ -117,7 +106,7 @@ async def change_member_role(
 async def remove_member_from_org(
     id: str,
     current_user: dict = Depends(get_current_user),
-    org_context: dict = Depends(require_admin_plus),
+    org_context: dict = Depends(require_org_admin),
     db: AsyncSession = Depends(get_db)
 ):
     if id == str(current_user["id"]):
@@ -130,9 +119,6 @@ async def remove_member_from_org(
 
     if not target_row:
         raise HTTPException(status_code=404, detail="Target user is not a member of this workspace environment.")
-
-    if ROLE_WEIGHTS.get(target_row.member_role, 0) >= ROLE_WEIGHTS.get(org_context["user_role"], 0):
-        raise HTTPException(status_code=403, detail="Cannot eject an organizational peer or superior.")
 
     await db.execute(text("DELETE FROM org_members WHERE org_id = :org_id AND user_id = :user_id;"), 
                      {"org_id": org_context["org_id"], "user_id": id})

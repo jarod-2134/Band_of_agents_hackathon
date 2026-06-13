@@ -54,7 +54,7 @@ async def create_organization(
     try:
         # Step A: Provision the unique organization context
         org_res = await db.execute(text("""
-            INSERT INTO orgs (name, slug) VALUES (:name, :slug)
+            INSERT INTO orgs (name, slug, plan) VALUES (:name, :slug, 'pro')
             ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
             RETURNING id, name, slug;
         """), {"name": payload.name, "slug": slug})
@@ -144,14 +144,13 @@ async def cascade_purge_tenant_worker(org_id: str, slug: str, user_id: str):
         # Step 1 & 2: Wipe file tracking parameters and system vectors
         logger.info("Worker Step 1/5: Purging workspace commit/issue vector embeddings matrix collections...")
         await conn.execute(text("DELETE FROM commit_embeddings WHERE org_id = :id;"), {"id": org_id})
-        await conn.execute(text("DELETE FROM issue_embeddings WHERE org_id = :id;"), {"id": org_id})
-        await conn.execute(text("DELETE FROM agent_memory WHERE org_id = :id;"), {"id": org_id})
+        await conn.execute(text("DELETE FROM issue_embeddings WHERE issue_id IN (SELECT id FROM issues WHERE org_id = :id);"), {"id": org_id})
+        await conn.execute(text("DELETE FROM agent_memories WHERE org_id = :id;"), {"id": org_id})
         
         # Step 3: Nuke direct operational components
-        logger.info("Worker Step 3/5: Purging repos, issues, and agents structures...")
+        logger.info("Worker Step 3/5: Purging repos and issues structures...")
         await conn.execute(text("DELETE FROM repos WHERE org_id = :id;"), {"id": org_id})
         await conn.execute(text("DELETE FROM issues WHERE org_id = :id;"), {"id": org_id})
-        await conn.execute(text("DELETE FROM agents WHERE org_id = :id;"), {"id": org_id})
         
         # Step 4: Drop core organization row definition
         logger.info("Worker Step 4/5: Wiping root tenant structural configuration mapping rules...")

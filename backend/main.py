@@ -4,19 +4,29 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from loguru import logger
 import uvicorn
+import bcrypt
 
 from agents.registry import registry
 from agents.corporate import HeadAgent
 from app.services.semantic_index import semantic_indexer
 from app.core.logger import setup_app_logging
+from app.core.middleware import LifecycleSecurityMiddleware
+from app.core.exceptions import PlatformException, platform_exception_handler, validation_exception_handler
 from database import init_db
 
 from app.routers.auth import router as auth_router
 from app.routers.issues import router as issues_router
 from app.routers.org import router as orgs_router
-from app.routers.members import members_router
+from app.routers.members import router as members_router
+from app.routers.traces import router as traces_router
+
+if not hasattr(bcrypt, "__about__"):
+    class DummyAbout:
+        __version__ = getattr(bcrypt, "__version__", "4.0.0")
+    bcrypt.__about__ = DummyAbout()
 
 REPOS_DIR = os.path.join(os.path.dirname(__file__), "repos")
 os.makedirs(REPOS_DIR, exist_ok=True)
@@ -44,10 +54,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(LifecycleSecurityMiddleware)
+app.add_exception_handler(PlatformException, platform_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
 app.include_router(auth_router)
 app.include_router(issues_router)
 app.include_router(orgs_router)
 app.include_router(members_router)
+app.include_router(traces_router)
 
 class ConnectionManager:
     def __init__(self):

@@ -3,22 +3,36 @@ import secrets
 import hashlib
 from datetime import datetime, timedelta, timezone
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 
-pwd_context = CryptContext(schemes=["bcrypt"], bcrypt__rounds=12)
 JWT_SECRET = os.getenv("JWT_SECRET", "<JWT_SECRET>")
 ALGORITHM = "HS256"
-DUMMY_HASH = "$2b$12$K8M9V3bV7eH2vM6S9zR4eOq1GZ2X2v7M2S9zR4eOq1GZ2X2v7M2S2"
+DUMMY_HASH = "$2b$12$K8M9V3bV7eH2vM6S9zR4eOq1GZ2X2v7M2S9zR4eOq1GZ2X2v7M2S"
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    # Convert text to raw bytes for the bcrypt engine
+    password_bytes = password.encode("utf-8")
+    
+    # Generate salt with an explicit work factor of 12
+    salt = bcrypt.gensalt(rounds=12)
+    
+    # Hash and decode back to a clean string for database storage
+    hashed_bytes = bcrypt.hashpw(password_bytes, salt)
+    return hashed_bytes.decode("utf-8")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"), 
+            hashed_password.encode("utf-8")
+        )
+    except Exception:
+        return False
 
 def blind_compare(a: str) -> bool:
-    """Perform a constant-time comparison to prevent timing attacks."""
-    return pwd_context.verify(a, DUMMY_HASH)
+    """Executes a dummy verification check to mitigate timing-based user enumeration."""
+    # Always burns identical CPU cycles regardless of whether the email was found
+    bcrypt.checkpw(a.encode("utf-8"), DUMMY_HASH)
 
 def generate_tokens(user_id: str, email: str):
     now = datetime.now(timezone.utc)
