@@ -34,12 +34,13 @@ def blind_compare(a: str) -> bool:
     # Always burns identical CPU cycles regardless of whether the email was found
     bcrypt.checkpw(a.encode("utf-8"), DUMMY_HASH)
 
-def generate_tokens(user_id: str, email: str):
+def generate_tokens(user_id: str, email: str, orgs: list):
     now = datetime.now(timezone.utc)
 
     access_payload = {
         "sub": str(user_id),
         "email": email,
+        "orgs": orgs,
         "exp": now + timedelta(minutes=15)
     }
     access_token = jwt.encode(access_payload, JWT_SECRET, algorithm=ALGORITHM)

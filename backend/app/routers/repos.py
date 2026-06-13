@@ -99,10 +99,11 @@ async def async_cascade_repo_purge(org_slug: str, repo_id: str, repo_name: str, 
 
 @router.get("")
 async def list_repositories(org_slug: str, db: Session = Depends(get_db)):
-    result = db.execute(
+    result_proxy = await db.execute(
         text("SELECT id, name, org_slug, fs_path FROM repos WHERE org_slug = :org_slug"),
         {"org_slug": org_slug}
-    ).mappings().all()
+    )
+    result = result_proxy.mappings().all()
     return {"repositories": [dict(row) for row in result]}
 
 
@@ -116,7 +117,7 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
 
     # Step 1: Insert row into database
     try:
-        result = db.execute(
+        result = await db.execute(
             text("""
                 INSERT INTO repos (name, org_slug, fs_path) 
                 VALUES (:name, :org_slug, :fs_path) 
@@ -156,10 +157,11 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
 
 @router.get("/{repo_id}")
 async def get_repository(org_slug: str, repo_id: str, db: Session = Depends(get_db)):
-    repo = db.execute(
+    repo_proxy = await db.execute(
         text("SELECT id, name, org_slug, fs_path FROM repos WHERE id = :id AND org_slug = :org_slug"),
         {"id": repo_id, "org_slug": org_slug}
-    ).mappings().first()
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository record not found.")
     return dict(repo)

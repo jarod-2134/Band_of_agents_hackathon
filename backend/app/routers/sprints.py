@@ -30,16 +30,17 @@ class SprintItemMovePayload(BaseModel):
 
 @router.get("")
 async def list_sprints(org_slug: str, db: Session = Depends(get_db)):
-    result = db.execute(
+    result_proxy = await db.execute(
         text("SELECT id, name, goal, status FROM sprints WHERE org_slug = :org_slug"),
         {"org_slug": org_slug}
-    ).mappings().all()
+    )
+    result = result_proxy.mappings().all()
     return {"sprints": [dict(row) for row in result]}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_sprint(org_slug: str, payload: SprintCreatePayload, db: Session = Depends(get_db)):
-    result = db.execute(
+    result = await db.execute(
         text("""
             INSERT INTO sprints (org_slug, name, goal, status)
             VALUES (:org_slug, :name, :goal, 'planning')
@@ -48,16 +49,17 @@ async def create_sprint(org_slug: str, payload: SprintCreatePayload, db: Session
         {"org_slug": org_slug, "name": payload.name, "goal": payload.goal}
     )
     row = result.mappings().first()
-    db.commit()
+    await db.commit()
     return {"status": "created", "sprint_id": row["id"], "sprint_status": row["status"]}
 
 
 @router.get("/{sprint_id}")
 async def get_sprint_details(org_slug: str, sprint_id: int, db: Session = Depends(get_db)):
-    sprint = db.execute(
+    sprint_proxy = await db.execute(
         text("SELECT * FROM sprints WHERE id = :id AND org_slug = :org_slug"),
         {"id": sprint_id, "org_slug": org_slug}
-    ).mappings().first()
+    )
+    sprint = sprint_proxy.mappings().first()
     if not sprint:
         raise HTTPException(status_code=404, detail="Sprint profile not found.")
     return dict(sprint)
@@ -65,14 +67,14 @@ async def get_sprint_details(org_slug: str, sprint_id: int, db: Session = Depend
 
 @router.patch("/{sprint_id}")
 async def update_sprint_metadata(org_slug: str, sprint_id: int, payload: SprintCreatePayload, db: Session = Depends(get_db)):
-    result = db.execute(
+    result = await db.execute(
         text("""
             UPDATE sprints SET name = :name, goal = :goal 
             WHERE id = :id AND org_slug = :org_slug RETURNING id
         """),
         {"name": payload.name, "goal": payload.goal, "id": sprint_id, "org_slug": org_slug}
     )
-    db.commit()
+    await db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Target sprint missing.")
     return {"status": "updated", "sprint_id": sprint_id}
@@ -80,11 +82,11 @@ async def update_sprint_metadata(org_slug: str, sprint_id: int, payload: SprintC
 
 @router.post("/{sprint_id}/start")
 async def start_sprint_cycle(org_slug: str, sprint_id: int, db: Session = Depends(get_db)):
-    result = db.execute(
+    result = await db.execute(
         text("UPDATE sprints SET status = 'active' WHERE id = :id AND org_slug = :org_slug RETURNING id"),
         {"id": sprint_id, "org_slug": org_slug}
     )
-    db.commit()
+    await db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Target sprint missing.")
     return {"status": "active", "sprint_id": sprint_id}
@@ -92,11 +94,11 @@ async def start_sprint_cycle(org_slug: str, sprint_id: int, db: Session = Depend
 
 @router.post("/{sprint_id}/complete")
 async def complete_sprint_cycle(org_slug: str, sprint_id: int, db: Session = Depends(get_db)):
-    result = db.execute(
+    result = await db.execute(
         text("UPDATE sprints SET status = 'completed' WHERE id = :id AND org_slug = :org_slug RETURNING id"),
         {"id": sprint_id, "org_slug": org_slug}
     )
-    db.commit()
+    await db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Target sprint missing.")
     return {"status": "completed", "sprint_id": sprint_id}
@@ -108,7 +110,7 @@ async def complete_sprint_cycle(org_slug: str, sprint_id: int, db: Session = Dep
 
 @router.get("/{sprint_id}/items")
 async def list_sprint_items(org_slug: str, sprint_id: int, db: Session = Depends(get_db)):
-    result = db.execute(
+    result_proxy = await db.execute(
         text("""
             SELECT id, issue_id, column_status, position 
             FROM sprint_items 
@@ -116,13 +118,14 @@ async def list_sprint_items(org_slug: str, sprint_id: int, db: Session = Depends
             ORDER BY column_status, position ASC
         """),
         {"sprint_id": sprint_id}
-    ).mappings().all()
+    )
+    result = result_proxy.mappings().all()
     return {"items": [dict(row) for row in result]}
 
 
 @router.post("/{sprint_id}/items", status_code=status.HTTP_201_CREATED)
 async def add_item_to_sprint(org_slug: str, sprint_id: int, payload: SprintItemPayload, db: Session = Depends(get_db)):
-    result = db.execute(
+    result = await db.execute(
         text("""
             INSERT INTO sprint_items (sprint_id, issue_id, column_status, position)
             VALUES (:sprint_id, :issue_id, :column_status, :position)
@@ -134,17 +137,17 @@ async def add_item_to_sprint(org_slug: str, sprint_id: int, payload: SprintItemP
         }
     )
     item_id = result.scalar_one()
-    db.commit()
+    await db.commit()
     return {"status": "added", "item_id": item_id}
 
 
 @router.delete("/{sprint_id}/items/{item_id}")
 async def remove_item_from_sprint(org_slug: str, sprint_id: int, item_id: int, db: Session = Depends(get_db)):
-    result = db.execute(
+    result = await db.execute(
         text("DELETE FROM sprint_items WHERE id = :id AND sprint_id = :sprint_id"),
         {"id": item_id, "sprint_id": sprint_id}
     )
-    db.commit()
+    await db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Sprint board item allocation entry missing.")
     return {"status": "removed", "item_id": item_id}
@@ -157,7 +160,7 @@ async def move_sprint_item_ui_position(org_slug: str, sprint_id: int, item_id: i
     Applies transactional mutations and triggers state broadcast packets over the BAND broker.
     """
     # 1. Update the record data directly
-    result = db.execute(
+    result_proxy = await db.execute(
         text("""
             UPDATE sprint_items 
             SET column_status = :column_status, position = :position 
@@ -170,17 +173,17 @@ async def move_sprint_item_ui_position(org_slug: str, sprint_id: int, item_id: i
             "id": item_id,
             "sprint_id": sprint_id
         }
-    ).mappings().first()
+    )
+    result = result_proxy.mappings().all()
 
     if not result:
         raise HTTPException(status_code=404, detail="Target board item workspace alignment mismatch.")
 
-    db.commit()
+    await db.commit()
 
     # 2. Fire instant message transaction packet onto BAND fabric
-    # This matches the event payload layout required to notify the Zustand frontends.
     try:
-        # TODO: band_client.publish(f"org.{org_slug}.sprints.board.update", {...})
+        # TODO: await band_client.publish(f"org.{org_slug}.sprints.board.update", {...})
         logger.info(f"Dispatched sync packet over BAND: org.{org_slug}.sprints.board.update")
     except Exception as e:
         logger.warning(f"Zustand frontend synchronization warning over BAND network paths: {e}")
