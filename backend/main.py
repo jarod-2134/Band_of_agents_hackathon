@@ -4,10 +4,13 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 import uvicorn
 
 from agents.registry import registry
 from agents.corporate import HeadAgent
+from app.services.semantic_index import semantic_indexer
+from app.core.logger import setup_app_logging
 from database import init_db
 
 REPOS_DIR = os.path.join(os.path.dirname(__file__), "repos")
@@ -15,10 +18,15 @@ os.makedirs(REPOS_DIR, exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_app_logging()
+
+    logger.info("Starting application setup...")
+
     # Initialize database
-    print("Initializing Database...")
+    semantic_indexer.load_model()
+    logger.info("Semantic indexing model loaded.")
     await init_db()
-    print("Database Initialized.")
+    logger.info("Database initialized successfully.")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -67,7 +75,7 @@ def on_graph_update():
         loop = asyncio.get_running_loop()
         loop.create_task(manager.send_graph_update())
     except RuntimeError:
-        pass
+        logger.error("Error occurred while sending graph update.")
 
 registry.on_graph_update = on_graph_update
 
@@ -93,7 +101,7 @@ async def websocket_endpoint(websocket: WebSocket, repo_id: str):
     try:
         while True:
             data = await websocket.receive_text()
-            print(f"Received from {repo_id}: {data}")
+            logger.info(f"Received message from {repo_id}: {data}")
             
             try:
                 payload = json.loads(data)
