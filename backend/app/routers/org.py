@@ -105,8 +105,7 @@ async def get_organization_details(
 
     return {
         "id": str(org_context["org_id"]),
-        "slug": org_context["slug"],
-        "name": org_context["name"],
+        "slug": org_context["org_slug"],
         "plan": "pro",
         "member_count": member_count,
         "repo_count": repo_count
@@ -129,7 +128,7 @@ async def update_organization_metadata(
     
     return {
         "id": str(org_context["org_id"]),
-        "slug": org_context["slug"],
+        "slug": org_context["org_slug"],
         "name": payload.name,
         "plan": payload.plan or "pro"
     }
@@ -169,11 +168,11 @@ async def delete_organization_trigger(
     background_tasks.add_task(
         cascade_purge_tenant_worker,
         org_id=org_context["org_id"],
-        slug=org_context["slug"],
+        slug=org_context["org_slug"],
         user_id=current_user["id"]
     )
     
     return {
-        "job_id": f"job_purge_{org_context['slug']}",
+        "job_id": f"job_purge_{org_context['org_slug']}",
         "status": "queued"
     }

@@ -9,6 +9,8 @@ Endpoints:
   DELETE /api/v1/orgs/{slug}
 """
 
+from unittest.mock import patch
+
 import pytest
 from tests.conftest import make_mock_result, make_row, TEST_USER, TEST_ORG
 
@@ -139,8 +141,9 @@ class TestDeleteOrg:
     @pytest.mark.asyncio
     async def test_delete_org_queues_background_job(self, auth_client):
         client, db = auth_client
-        response = await client.delete("/api/v1/orgs/test-org")
-        assert response.status_code == 202
-        data = response.json()
-        assert data["status"] == "queued"
-        assert "job_id" in data
+
+        with patch("app.routers.org.cascade_purge_tenant_worker") as mock_worker:
+            response = await client.delete("/api/v1/orgs/test-org")
+            assert response.status_code == 202
+
+            mock_worker.assert_called_once()

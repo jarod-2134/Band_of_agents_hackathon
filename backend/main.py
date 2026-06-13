@@ -51,7 +51,19 @@ async def lifespan(app: FastAPI):
     logger.info("Database initialized successfully.")
     yield
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    openapi_components={
+        "securitySchemes": {
+            "APIKeyHeader": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-User-Id"
+            }
+        }
+    },
+    security=[{"APIKeyHeader": []}]
+    )
 
 app.add_middleware(
     CORSMiddleware,

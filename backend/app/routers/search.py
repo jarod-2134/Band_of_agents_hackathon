@@ -50,7 +50,7 @@ async def search_org_code(org_slug: str, payload: SearchPayload, db: Session = D
     """, payload.filters)
     
     params = {"org_slug": org_slug, "query": payload.query, "limit": payload.limit}
-    if payload.filters: params.update(payload.filters.dict())
+    if payload.filters: params.update(payload.filters.model_dump())
     
     result = db.execute(text(sql), params).mappings().all()
     return {"results": [dict(row) for row in result]}
@@ -68,7 +68,7 @@ async def search_issues(org_slug: str, payload: SearchPayload, db: Session = Dep
     """, payload.filters)
     
     params = {"org_slug": org_slug, "query": payload.query, "limit": payload.limit}
-    if payload.filters: params.update(payload.filters.dict())
+    if payload.filters: params.update(payload.filters.model_dump())
     
     result = db.execute(text(sql), params).mappings().all()
     return {"results": [dict(row) for row in result]}
@@ -86,7 +86,7 @@ async def search_agent_memory(org_slug: str, payload: SearchPayload, db: Session
     """, payload.filters)
     
     params = {"org_slug": org_slug, "query": payload.query, "limit": payload.limit}
-    if payload.filters: params.update(payload.filters.dict())
+    if payload.filters: params.update(payload.filters.model_dump())
     
     result = db.execute(text(sql), params).mappings().all()
     return {"results": [dict(row) for row in result]}
@@ -108,7 +108,7 @@ async def search_repo_code(org_slug: str, repo_id: int, payload: SearchPayload, 
     """, payload.filters)
     
     params = {"org_slug": org_slug, "repo_id": repo_id, "query": payload.query, "limit": payload.limit}
-    if payload.filters: params.update(payload.filters.dict())
+    if payload.filters: params.update(payload.filters.model_dump())
     
     result = db.execute(text(sql), params).mappings().all()
     return {"results": [dict(row) for row in result]}

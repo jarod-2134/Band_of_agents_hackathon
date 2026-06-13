@@ -82,7 +82,7 @@ async def get_pull_request(org_slug: str, repo_id: str, pr_id: int, db: Session 
 
 @router.patch("/{pr_id}")
 async def update_pull_request(org_slug: str, repo_id: str, pr_id: int, payload: PullRequestUpdatePayload, db: Session = Depends(get_db)):
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields provided for update.")
     

@@ -140,6 +140,13 @@ TEST_USER = {
     "email": "test@example.com",
     "display_name": "Test User",
     "role": "human",
+    "orgs": [
+        {
+            "org_id": "22222222-2222-2222-2222-222222222222",
+            "org_slug": "test-org",
+            "role": "owner"
+        }
+    ]
 }
 
 TEST_ORG = {
@@ -222,18 +229,19 @@ async def mock_sync_db():
 
 @pytest_asyncio.fixture
 async def auth_client(mock_async_db):
-    """Authenticated async client (owner), DB mocked."""
     from main import app
     from database import get_db
+    from app.core.security import generate_tokens
 
-    async def _override_db():
-        yield mock_async_db
-
-    app.dependency_overrides[get_db] = _override_db
-    wrapped = _build_test_app(user=TEST_USER, org=TEST_ORG)
-    transport = ASGITransport(app=wrapped)
-
+    app.dependency_overrides[get_db] = lambda: mock_async_db
+    
+    # 1. Generate a real JWT for the test user
+    access_token, _, _ = generate_tokens(TEST_USER["id"], TEST_USER["email"], TEST_USER["orgs"])
+    
+    # 2. Add the token to the client's default headers
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        client.headers.update({"Authorization": f"Bearer {access_token}"})
         yield client, mock_async_db
 
     app.dependency_overrides.clear()
@@ -241,11 +249,13 @@ async def auth_client(mock_async_db):
 
 @pytest_asyncio.fixture
 async def anon_client():
-    """Unauthenticated async client — user and org are None."""
     from main import app
+    # Ensure no overrides are present
     app.dependency_overrides = {}
+    
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Do not add any Authorization headers here
         yield client
 
 
