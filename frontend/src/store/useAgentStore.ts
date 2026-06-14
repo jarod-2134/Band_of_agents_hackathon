@@ -42,6 +42,7 @@ interface AgentState {
   logs: LogEntry[];
   currentDiff: { original: string; modified: string; filePath: string } | null;
   nodes: GraphNode[];
+  edges: GraphEdge[];
   apiKeys: Record<string, string>;
   theme: string;
   currentRepoId: string | null;
