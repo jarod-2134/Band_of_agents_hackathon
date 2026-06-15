@@ -35,6 +35,13 @@ export interface GraphEdge {
   style?: any;
 }
 
+interface DemoSnapshot {
+  fileTree: FileNode[];
+  logs: LogEntry[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 interface AgentState {
   isConnected: boolean;
   activeNodeId: string | null;
@@ -46,8 +53,9 @@ interface AgentState {
   apiKeys: Record<string, string>;
   theme: string;
   currentRepoId: string | null;
+  demoMode: boolean;
+  demoSnapshot: DemoSnapshot | null;
 
-  // Actions
   fetchFileTree: (repoId: string) => Promise<void>;
   connectWebSocket: (repoId: string) => void;
   disconnectWebSocket: () => void;
@@ -59,6 +67,13 @@ interface AgentState {
   setGraph: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setApiKey: (provider: string, key: string) => void;
   setTheme: (theme: string) => void;
+  startDemoSession: (payload: {
+    fileTree: FileNode[];
+    logs: LogEntry[];
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+  }) => void;
+  stopDemoSession: () => void;
 }
 
 let ws: WebSocket | null = null;
@@ -74,6 +89,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   currentDiff: null,
   nodes: [],
   edges: [],
+  demoMode: false,
+  demoSnapshot: null,
 
   fetchFileTree: async (repoId: string) => {
     try {
@@ -143,6 +160,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       timestamp: Date.now()
     }]
   })),
+  setCurrentDiff: (diff) => set({ currentDiff: diff }),
   setGraph: (nodes, edges) => set({ nodes, edges }),
   setApiKey: (provider, key) => set((state) => ({ apiKeys: { ...state.apiKeys, [provider]: key } })),
   setTheme: (theme) => {
@@ -151,8 +169,47 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     html.classList.forEach(c => {
       if (c.startsWith('theme-')) html.classList.remove(c);
     });
-    // Remove old .dark if it was there
     html.classList.remove('dark');
     html.classList.add(`theme-${theme}`);
-  }
+  },
+
+  startDemoSession: ({ fileTree, logs, nodes, edges }) => {
+    const state = get();
+
+    if (!state.demoMode) {
+      set({
+        demoMode: true,
+        demoSnapshot: {
+          fileTree: state.fileTree,
+          logs: state.logs,
+          nodes: state.nodes,
+          edges: state.edges,
+        },
+        fileTree,
+        logs,
+        nodes,
+        edges,
+      });
+    }
+  },
+
+  stopDemoSession: () => {
+    const snapshot = get().demoSnapshot;
+
+    if (snapshot) {
+      set({
+        demoMode: false,
+        demoSnapshot: null,
+        fileTree: snapshot.fileTree,
+        logs: snapshot.logs,
+        nodes: snapshot.nodes,
+        edges: snapshot.edges,
+      });
+    } else {
+      set({
+        demoMode: false,
+        demoSnapshot: null,
+      });
+    }
+  },
 }));

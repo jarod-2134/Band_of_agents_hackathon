@@ -1,37 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { useAgentStore } from '@/store/useAgentStore';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock3 } from 'lucide-react';
 
 type LogTerminalProps = {
   isOpen: boolean;
   onToggle: () => void;
 };
 
-const mockActivity = [
-  {
-    time: '03:56:21',
-    role: 'PM Agent',
-    message: 'Created implementation brief for “Build login page”.',
-  },
-  {
-    time: '03:56:24',
-    role: 'Band',
-    message: 'Delivered structured handoff payload to Developer Agent.',
-  },
-  {
-    time: '03:56:31',
-    role: 'Developer Agent',
-    message: 'Started editing Login.tsx and auth.ts.',
-  },
-  {
-    time: '03:56:42',
-    role: 'Reviewer Agent',
-    message: 'Waiting for code review request.',
-  },
-];
-
 export function LogTerminal({ isOpen, onToggle }: LogTerminalProps) {
   const logs = useAgentStore((state) => state.logs);
+  const demoMode = useAgentStore((state) => state.demoMode);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const usefulLogs = logs.filter((log) => !log.message.toLowerCase().includes('websocket disconnected'));
@@ -52,25 +30,26 @@ export function LogTerminal({ isOpen, onToggle }: LogTerminalProps) {
         </span>
 
         <span className="flex items-center gap-2 text-muted-foreground">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          DEMO
+          <div
+            className={`w-2 h-2 rounded-full ${
+              demoMode ? 'bg-green-500 animate-pulse' : usefulLogs.length > 0 ? 'bg-blue-500 animate-pulse' : 'bg-muted-foreground/40'
+            }`}
+          />
+          {demoMode ? 'DEMO SESSION' : usefulLogs.length > 0 ? 'LIVE SESSION' : 'IDLE'}
         </span>
       </button>
 
       {isOpen && (
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {usefulLogs.length === 0 &&
-            mockActivity.map((log) => (
-              <div key={`${log.time}-${log.message}`} className="flex flex-col border-b border-border pb-2 last:border-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs text-muted-foreground">{log.time}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full font-bold uppercase bg-primary/10 text-primary">
-                    {log.role}
-                  </span>
-                </div>
-                <div className="text-foreground">{log.message}</div>
-              </div>
-            ))}
+          {usefulLogs.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground">
+              <Clock3 className="w-8 h-8 mb-3 opacity-70" />
+              <div className="font-medium text-foreground">No agent activity yet</div>
+              <p className="text-xs mt-2">
+                Run the demo workflow to stream agent and Band events here.
+              </p>
+            </div>
+          )}
 
           {usefulLogs.map((log) => (
             <div key={log.id} className="flex flex-col border-b border-border pb-2 last:border-0">
@@ -78,11 +57,9 @@ export function LogTerminal({ isOpen, onToggle }: LogTerminalProps) {
                 <span className="text-xs text-muted-foreground">
                   {new Date(log.timestamp).toLocaleTimeString()}
                 </span>
-                {log.agentRole && (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-bold uppercase bg-primary/10 text-primary">
-                    {log.agentRole}
-                  </span>
-                )}
+                <span className="text-xs px-2 py-0.5 rounded-full font-bold uppercase bg-primary/10 text-primary">
+                  {log.agentRole ? log.agentRole.replace('engineer', 'developer') : 'band'}
+                </span>
               </div>
               <div className="text-foreground">{log.message}</div>
             </div>

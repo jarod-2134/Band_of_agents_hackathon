@@ -3,35 +3,7 @@ import { useAgentStore, type FileNode } from '@/store/useAgentStore';
 import { GraphViewer } from './GraphViewer';
 import { DiffViewer } from './DiffViewer';
 import { LogTerminal } from './LogTerminal';
-import { Folder, File, Code, Bot, ChevronDown, ChevronRight } from 'lucide-react';
-
-const mockFileTree: FileNode[] = [
-  {
-    name: 'frontend',
-    path: 'frontend',
-    isDir: true,
-    children: [
-      { name: 'Login.tsx', path: 'frontend/src/Login.tsx', isDir: false, status: 'modified' },
-      { name: 'auth.ts', path: 'frontend/src/auth.ts', isDir: false, status: 'modified' },
-      { name: 'Dashboard.tsx', path: 'frontend/src/components/dashboard/Dashboard.tsx', isDir: false },
-      { name: 'GraphViewer.tsx', path: 'frontend/src/components/dashboard/GraphViewer.tsx', isDir: false },
-    ],
-  },
-  {
-    name: 'backend',
-    path: 'backend',
-    isDir: true,
-    children: [
-      { name: 'agents.py', path: 'backend/agents/corporate.py', isDir: false },
-      { name: 'main.py', path: 'backend/main.py', isDir: false },
-    ],
-  },
-  {
-    name: 'README.md',
-    path: 'README.md',
-    isDir: false,
-  },
-];
+import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3 } from 'lucide-react';
 
 const mockDiffs: Record<string, { original: string; modified: string }> = {
   'frontend/src/Login.tsx': {
@@ -60,7 +32,6 @@ export function Login() {
   );
 }`,
   },
-
   'frontend/src/auth.ts': {
     original: `export async function login(email: string, password: string) {
   return fetch('/api/login', {
@@ -82,7 +53,6 @@ export function Login() {
   return response.json();
 }`,
   },
-
   'frontend/src/components/dashboard/Dashboard.tsx': {
     original: `export function Dashboard() {
   return (
@@ -106,7 +76,6 @@ export function Login() {
   );
 }`,
   },
-
   'frontend/src/components/dashboard/GraphViewer.tsx': {
     original: `const journey = [
   { agent: 'PM Agent', status: 'Completed' },
@@ -128,7 +97,6 @@ export function Login() {
   },
 ];`,
   },
-
   'backend/agents/corporate.py': {
     original: `class DeveloperAgent:
     def run(self, task):
@@ -139,7 +107,6 @@ export function Login() {
         changes = self.implement(plan)
         return self.create_handoff(changes)`,
   },
-
   'backend/main.py': {
     original: `app = FastAPI()
 
@@ -156,7 +123,6 @@ def root():
 async def websocket_endpoint(websocket: WebSocket, repo_id: str):
     await websocket.accept()`,
   },
-
   'README.md': {
     original: `# Band AI
 
@@ -168,7 +134,7 @@ A multi-agent software delivery workspace where PM, Developer, Reviewer, and QA 
 };
 
 export function Dashboard() {
-  const { fileTree } = useAgentStore();
+  const fileTree = useAgentStore((state) => state.fileTree);
   const [activeTab, setActiveTab] = useState<'graph' | 'diff'>('graph');
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [selectedDiff, setSelectedDiff] = useState({
@@ -176,8 +142,6 @@ export function Dashboard() {
     original: mockDiffs['frontend/src/Login.tsx'].original,
     modified: mockDiffs['frontend/src/Login.tsx'].modified,
   });
-
-  const treeToRender = fileTree && fileTree.length > 0 ? fileTree : mockFileTree;
 
   const renderTree = (nodes: FileNode[], depth = 0) => {
     return nodes?.map((node) => (
@@ -189,6 +153,7 @@ export function Dashboard() {
           onClick={() => {
             if (!node.isDir) {
               setActiveTab('diff');
+
               const diff = mockDiffs[node.path] ?? {
                 original: `// No previous version available for ${node.name}`,
                 modified: `// ${node.name}\n// No agent modifications have been recorded for this file yet.`,
@@ -237,11 +202,21 @@ export function Dashboard() {
 
         <div className="px-4 py-3 border-b border-border">
           <div className="text-sm font-semibold text-foreground">Repository</div>
-          <div className="text-xs text-muted-foreground mt-1">Mock project files modified by agents</div>
+          <div className="text-xs text-muted-foreground mt-1">Project files modified by agents</div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
-          {renderTree(treeToRender)}
+          {fileTree.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground px-4">
+              <Clock3 className="w-8 h-8 mb-3 opacity-70" />
+              <div className="font-medium text-foreground">No repository loaded</div>
+              <p className="text-xs mt-2">
+                Run the demo workflow to populate files modified by agents.
+              </p>
+            </div>
+          ) : (
+            renderTree(fileTree)
+          )}
         </div>
       </div>
 
