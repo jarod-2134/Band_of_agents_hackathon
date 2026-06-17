@@ -51,6 +51,13 @@ export interface GraphEdge {
   style?: any;
 }
 
+interface DemoSnapshot {
+  fileTree: FileNode[];
+  logs: LogEntry[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 interface AgentState {
   isConnected: boolean;
   activeNodeId: string | null;
@@ -64,7 +71,6 @@ interface AgentState {
   currentRepoId: string | null;
   currentOrgSlug: string;
 
-  // Actions
   fetchFileTree: (repoId: string) => Promise<void>;
   connectWebSocket: (repoId: string) => void;
   disconnectWebSocket: () => void;
@@ -93,6 +99,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   currentDiff: null,
   nodes: [],
   edges: [],
+  demoMode: false,
+  demoSnapshot: null,
 
   fetchFileTree: async (repoId: string) => {
     try {
@@ -172,7 +180,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     html.classList.forEach(c => {
       if (c.startsWith('theme-')) html.classList.remove(c);
     });
-    // Remove old .dark if it was there
     html.classList.remove('dark');
     html.classList.add(`theme-${theme}`);
   },
