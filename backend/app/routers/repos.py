@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import os
 import json
 import shutil
@@ -10,6 +11,7 @@ from sqlalchemy import text
 from loguru import logger
 
 from app.services.semantic_index import semantic_indexer
+from app.routers.deps import get_current_user
 from database import get_db
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -78,19 +80,33 @@ async def async_cascade_repo_purge(org_slug: str, repo_id: str, repo_name: str, 
     except Exception as e:
         logger.error(f"Failed to delete directory {repo_path}: {e}")
 
-    # 3. Purge related tracking rows sequentially
-    db: Session = next(db_session_factory())
+    # 3. Purge related tracking rows sequentially following relational dependency order
+    # Since get_db yields an async session inside an async generator, we handle async cleanup correctly
+    db = await anext(db_session_factory())
     try:
-        db.execute(text("DELETE FROM commits WHERE repo_id = :id"), {"id": repo_id})
-        db.execute(text("DELETE FROM branches WHERE repo_id = :id"), {"id": repo_id})
-        db.execute(text("DELETE FROM repos WHERE id = :id"), {"id": repo_id})
-        db.commit()
-        logger.info(f"✨ Step 3/4 Complete: Wiped metadata from database targets.")
+        logger.info(f"Executing database tier cleanup for repo {repo_id}...")
+        
+        # A. Clear pull requests and sprints that depend on the repo
+        await db.execute(text("DELETE FROM prs WHERE repo_id = :id"), {"id": repo_id})
+        await db.execute(text("DELETE FROM sprints WHERE repo_id = :id"), {"id": repo_id})
+        
+        # B. Clear branches FIRST to break the fk_branches_head_sha constraint pointing to commits
+        await db.execute(text("DELETE FROM branches WHERE repo_id = :id"), {"id": repo_id})
+        
+        # C. Clear commits SECOND now that no branches are pointing to them anymore
+        await db.execute(text("DELETE FROM commits WHERE repo_id = :id"), {"id": repo_id})
+        
+        # D. Finally, clear the parent repository row itself
+        await db.execute(text("DELETE FROM repos WHERE id = :id"), {"id": repo_id})
+        
+        await db.commit()
+        logger.info(f"✨ Step 3/4 Complete: Wiped metadata from database targets cleanly.")
+        
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.error(f"Database metadata cascade failure for repo {repo_id}: {e}")
     finally:
-        db.close()
+        await db.close()
 
 
 # =============================================================================
@@ -107,6 +123,9 @@ async def list_repositories(org_slug: str, db: Session = Depends(get_db)):
     return {"repositories": [dict(row) for row in result]}
 
 
+import pygit2
+from datetime import datetime, timezone
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Session = Depends(get_db)):
     repo_path = resolve_repo_disk_path(org_slug, payload.name)
@@ -115,44 +134,134 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
     if os.path.exists(repo_path):
         raise HTTPException(status_code=400, detail="Repository folder collision on disk.")
 
-    # Step 1: Insert row into database
+    default_branch = "main"
+    default_visibility = "private"
+    default_description = f"Codebase storage hub for {payload.name} inside organization {org_slug}."
+
+    # Step 1: Insert repository record into the database
     try:
         result = await db.execute(
             text("""
-                INSERT INTO repos (name, org_slug, fs_path) 
-                VALUES (:name, :org_slug, :fs_path) 
+                INSERT INTO repos (name, org_slug, fs_path, default_branch, visibility, description) 
+                VALUES (:name, :org_slug, :fs_path, :default_branch, :visibility, :description) 
                 RETURNING id
             """),
-            {"name": payload.name, "org_slug": org_slug, "fs_path": unique_folder_name}
+            {
+                "name": payload.name, 
+                "org_slug": org_slug, 
+                "fs_path": unique_folder_name,
+                "default_branch": default_branch,
+                "visibility": default_visibility,
+                "description": default_description
+            }
         )
         repo_id = result.scalar_one()
-        db.flush() 
+        await db.flush() 
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.error(f"Atomic step 1 failed: DB insertion exception: {e}")
         raise HTTPException(status_code=500, detail="Failed to register repository record.")
 
-    # Step 2: Initialize clean base repo on disk using pygit2
+    # Step 2: Initialize bare repo and generate a REAL physical root commit
     try:
         os.makedirs(repo_path, exist_ok=True)
-        pygit2.init_repository(repo_path, bare=True)
-        logger.info(f"Atomic step 2 complete: Bare pygit2 repo initialized at {repo_path}")
+        git_repo = pygit2.init_repository(repo_path, bare=True)
+        
+        # Craft a signature for the system agent
+        author = pygit2.Signature('System Agent', 'system@mesh.internal')
+        committer = pygit2.Signature('System Agent', 'system@mesh.internal')
+        
+        # Create an empty tree structure object required for a commit object
+        tree_index = pygit2.Index()
+        tree_oid = tree_index.write_tree(git_repo)
+        
+        # Write a real physical commit to disk directly onto refs/heads/main
+        commit_oid = git_repo.create_commit(
+            f"refs/heads/{default_branch}", # Target reference path
+            author, 
+            committer, 
+            "Initial empty repository structure initialization", # Commit message
+            tree_oid, 
+            [] # No parents (this makes it a true root commit!)
+        )
+        
+        # Safely capture the valid 40-character hex string generated by Git
+        actual_git_sha = str(commit_oid)
+        
+        # Set HEAD to point directly to our newly populated main branch
+        git_repo.set_head(f"refs/heads/{default_branch}")
+        logger.info(f"Atomic step 2 complete: Bare repo created with real root commit: {actual_git_sha}")
+        
     except Exception as e:
         if os.path.exists(repo_path):
             shutil.rmtree(repo_path)
-        db.rollback()
+        await db.rollback()
         logger.error(f"Atomic step 2 failed: pygit2 initialization error: {e}")
         raise HTTPException(status_code=500, detail="Failed to initialize Git storage engine.")
 
-    # Step 3: Definitive DB Commit & Publish to BAND broker
+    # Step 3: Seed metadata tracking records using the real SHA
     try:
-        db.commit()
-        # TODO: band_client.publish(f"org.{org_slug}.repo.created", {"repo": payload.name, "id": repo_id})
-        logger.info(f"Atomic step 3 complete: Broadcast creation event sent to BAND mesh.")
-    except Exception as e:
-        logger.warning(f"BAND broker event distribution warning: {e}")
+        user_proxy = await db.execute(text("SELECT id FROM users LIMIT 1"))
+        valid_user_id = user_proxy.scalar()
 
-    return {"status": "created", "repo_id": repo_id, "path": unique_folder_name}
+        if not valid_user_id:
+            raise HTTPException(status_code=500, detail="No users exist to register repo.")
+
+        # A. Insert the valid root commit tracking row into the DB
+        await db.execute(
+            text("""
+                INSERT INTO commits (
+                    sha, org_slug, repo_id, message, author_name, 
+                    author_email, branch, parent_shas, files_changed, 
+                    insertions, deletions, committed_at
+                )
+                VALUES (
+                    :sha, :org_slug, :repo_id, 'Initial empty repository structure initialization', 'System Agent', 
+                    'system@mesh.internal', :branch, '[]'::jsonb, 0, 
+                    0, 0, :committed_at
+                )
+                ON CONFLICT (sha) DO NOTHING
+            """),
+            {
+                "sha": actual_git_sha, # 👈 Using the actual physical hex SHA here
+                "org_slug": org_slug, 
+                "repo_id": repo_id,
+                "branch": default_branch,
+                "committed_at": datetime.now(timezone.utc)
+            }
+        )
+        await db.flush()
+
+        # B. Insert the branch row pointing to our legitimate commit reference
+        await db.execute(
+            text("""
+                INSERT INTO branches (repo_id, name, head_sha, status, protected, created_by)
+                VALUES (:repo_id, :name, :head_sha, 'open', true, :created_by)
+            """),
+            {
+                "repo_id": repo_id,
+                "name": default_branch,
+                "head_sha": actual_git_sha, # 👈 Links up perfectly
+                "created_by": valid_user_id
+            }
+        )
+        await db.flush()
+        
+    except Exception as e:
+        if os.path.exists(repo_path):
+            shutil.rmtree(repo_path)
+        await db.rollback()
+        logger.error(f"Atomic step 3 failed: Seeding initial main branch metadata failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to seed protected main branch context.")
+
+    # Step 4: Definitive Transaction Commit
+    try:
+        await db.commit()
+        logger.info(f"Atomic step 4 complete: Repository finalized successfully.")
+    except Exception as e:
+        logger.warning(f"Event synchronization warning: {e}")
+
+    return {"status": "created", "repo_id": str(repo_id), "path": unique_folder_name}
 
 
 @router.get("/{repo_id}")
@@ -169,11 +278,11 @@ async def get_repository(org_slug: str, repo_id: str, db: Session = Depends(get_
 
 @router.patch("/{repo_id}")
 async def update_repository(org_slug: str, repo_id: str, payload: RepoCreatePayload, db: Session = Depends(get_db)):
-    result = db.execute(
+    result = await db.execute(
         text("UPDATE repos SET name = :name WHERE id = :id AND org_slug = :org_slug RETURNING id"),
         {"name": payload.name, "id": repo_id, "org_slug": org_slug}
     )
-    db.commit()
+    await db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Target repository does not exist.")
     return {"status": "updated", "repo_id": repo_id}
@@ -181,10 +290,11 @@ async def update_repository(org_slug: str, repo_id: str, payload: RepoCreatePayl
 
 @router.delete("/{repo_id}", status_code=status.HTTP_202_ACCEPTED)
 async def delete_repository(org_slug: str, repo_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    repo = db.execute(
+    repo_proxy = await db.execute(
         text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"),
         {"id": repo_id, "org_slug": org_slug}
-    ).mappings().first()
+    )
+    repo = repo_proxy.mappings().first()
     
     if not repo:
         raise HTTPException(status_code=404, detail="Repository target not found.")
@@ -194,7 +304,7 @@ async def delete_repository(org_slug: str, repo_id: str, background_tasks: Backg
         org_slug, 
         repo_id, 
         repo["name"], 
-        lambda: get_db
+        get_db
     )
     return {"status": "accepted", "detail": "Cascading deletion sequence scheduled asynchronously."}
 
@@ -205,19 +315,21 @@ async def delete_repository(org_slug: str, repo_id: str, background_tasks: Backg
 
 @router.get("/{repo_id}/branches")
 async def list_branches(org_slug: str, repo_id: str, db: Session = Depends(get_db)):
-    result = db.execute(
+    result_proxy = await db.execute(
         text("SELECT id, name, protected FROM branches WHERE repo_id = :repo_id"),
         {"repo_id": repo_id}
-    ).mappings().all()
+    )
+    result = result_proxy.mappings().all()
     return {"branches": [dict(row) for row in result]}
 
 
 @router.post("/{repo_id}/branches", status_code=status.HTTP_201_CREATED)
 async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayload, db: Session = Depends(get_db)):
-    repo = db.execute(
+    repo_proxy = await db.execute(
         text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"),
         {"id": repo_id, "org_slug": org_slug}
-    ).mappings().first()
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Parent repository missing.")
 
@@ -227,24 +339,56 @@ async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayloa
         source_branch_ref = git_repo.lookup_reference(f"refs/heads/{payload.source_branch}")
         source_commit = git_repo.get(source_branch_ref.target)
         
+        # 1. Spin up the physical branch in the native git engine storage container
         git_repo.create_branch(payload.name, source_commit)
         
-        db.execute(
-            text("INSERT INTO branches (repo_id, name, protected) VALUES (:repo_id, :name, :protected)"),
-            {"repo_id": repo_id, "name": payload.name, "protected": False}
-        )
-        db.commit()
-        return {"status": "created", "branch": payload.name}
+        # FIX: In pygit2, use .id to access the OID, then cast it to a string for the 40-char SHA
+        physical_head_sha = str(source_commit.id)
+        
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Native engine branch initialization failed: {str(e)}")
 
+    # 2. Database Metadata Tracking Tier Execution
+    try:
+        # Dynamically fetch an active user ID to fulfill your table's fk_branches_created_by constraint
+        user_proxy = await db.execute(text("SELECT id FROM users LIMIT 1"))
+        valid_user_id = user_proxy.scalar()
+
+        if not valid_user_id:
+            raise HTTPException(
+                status_code=500, 
+                detail="Cannot register metadata because no users exist in the platform context."
+            )
+
+        await db.execute(
+            text("""
+                INSERT INTO branches (repo_id, name, head_sha, status, protected, created_by) 
+                VALUES (:repo_id, :name, :head_sha, 'open', :protected, :created_by)
+            """),
+            {
+                "repo_id": repo_id, 
+                "name": payload.name, 
+                "head_sha": physical_head_sha, # 👈 Legitimate SHA string
+                "protected": False,
+                "created_by": valid_user_id 
+            }
+        )
+        await db.commit()
+        return {"status": "created", "branch": payload.name, "target_sha": physical_head_sha}
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed database mirror registration for branch {payload.name}: {e}")
+        raise HTTPException(status_code=500, detail="Database tracking state registration failed.")
+    
 
 @router.get("/{repo_id}/branches/{branch_name:path}")
 async def get_branch_details(org_slug: str, repo_id: str, branch_name: str, db: Session = Depends(get_db)):
-    branch = db.execute(
+    branch_proxy = await db.execute(
         text("SELECT id, name, protected FROM branches WHERE repo_id = :repo_id AND name = :name"),
         {"repo_id": repo_id, "name": branch_name}
-    ).mappings().first()
+    )
+    branch = branch_proxy.mappings().first()
     if not branch:
         raise HTTPException(status_code=404, detail="Branch metadata entry not found.")
     return dict(branch)
@@ -253,10 +397,11 @@ async def get_branch_details(org_slug: str, repo_id: str, branch_name: str, db: 
 @router.delete("/{repo_id}/branches/{branch_name:path}")
 async def delete_branch(org_slug: str, repo_id: str, branch_name: str, db: Session = Depends(get_db)):
     # Hard guard enforcement at API layer before disk mutations are touched
-    is_protected = db.execute(
+    is_protected_proxy = await db.execute(
         text("SELECT protected FROM branches WHERE repo_id = :repo_id AND name = :name"),
         {"repo_id": repo_id, "name": branch_name}
-    ).scalar()
+    )
+    is_protected = is_protected_proxy.scalar()
     
     if is_protected or branch_name == "main":
         raise HTTPException(
@@ -264,10 +409,11 @@ async def delete_branch(org_slug: str, repo_id: str, branch_name: str, db: Sessi
             detail=f"Action Denied: '{branch_name}' is a protected branch pathway."
         )
 
-    repo = db.execute(
+    repo_proxy = await db.execute(
         text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"),
         {"id": repo_id, "org_slug": org_slug}
-    ).mappings().first()
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Parent repository reference context missing.")
 
@@ -278,11 +424,11 @@ async def delete_branch(org_slug: str, repo_id: str, branch_name: str, db: Sessi
         if branch_obj:
             branch_obj.delete()
         
-        db.execute(
+        await db.execute(
             text("DELETE FROM branches WHERE repo_id = :repo_id AND name = :name"),
             {"repo_id": repo_id, "name": branch_name}
         )
-        db.commit()
+        await db.commit()
         return {"status": "deleted", "branch": branch_name}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Branch not found on storage fabric: {e}")
@@ -291,7 +437,7 @@ async def delete_branch(org_slug: str, repo_id: str, branch_name: str, db: Sessi
 @router.patch("/{repo_id}/branches/{branch_name:path}/protect")
 async def toggle_branch_protection(org_slug: str, repo_id: str, branch_name: str, payload: BranchProtectPayload, db: Session = Depends(get_db)):
     """Stores the protection configuration parameter inside the repository tracking systems."""
-    result = db.execute(
+    result = await db.execute(
         text("""
             UPDATE branches SET protected = :protected 
             WHERE repo_id = :repo_id AND name = :name RETURNING id
@@ -299,11 +445,11 @@ async def toggle_branch_protection(org_slug: str, repo_id: str, branch_name: str
         {"protected": payload.protected, "repo_id": repo_id, "name": branch_name}
     )
     if not result.rowcount:
-        db.execute(
+        await db.execute(
             text("INSERT INTO branches (repo_id, name, protected) VALUES (:repo_id, :name, :protected)"),
             {"repo_id": repo_id, "name": branch_name, "protected": payload.protected}
         )
-    db.commit()
+    await db.commit()
     logger.info(f"Updated protection flag on tracking group {branch_name} to: {payload.protected}")
     return {"status": "success", "branch": branch_name, "protected": payload.protected}
 
@@ -314,7 +460,11 @@ async def toggle_branch_protection(org_slug: str, repo_id: str, branch_name: str
 
 @router.get("/{repo_id}/commits")
 async def list_commits(org_slug: str, repo_id: str, branch: Optional[str] = "main", db: Session = Depends(get_db)):
-    repo = db.execute(text("SELECT name FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"), 
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository record absent.")
     
@@ -339,7 +489,11 @@ async def list_commits(org_slug: str, repo_id: str, branch: Optional[str] = "mai
 
 @router.get("/{repo_id}/commits/{sha}")
 async def get_commit_details(org_slug: str, repo_id: str, sha: str, db: Session = Depends(get_db)):
-    repo = db.execute(text("SELECT name FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"), 
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found.")
         
@@ -360,7 +514,11 @@ async def get_commit_details(org_slug: str, repo_id: str, sha: str, db: Session 
 
 @router.get("/{repo_id}/commits/{sha}/diff")
 async def get_commit_diff(org_slug: str, repo_id: str, sha: str, db: Session = Depends(get_db)):
-    repo = db.execute(text("SELECT name FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"), 
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository context absent.")
         
@@ -382,7 +540,11 @@ async def get_commit_diff(org_slug: str, repo_id: str, sha: str, db: Session = D
 @router.get("/{repo_id}/tree/{branch}")
 @router.get("/{repo_id}/tree/{branch}/{filepath:path}")
 async def get_repo_tree(org_slug: str, repo_id: str, branch: str, filepath: Optional[str] = "", db: Session = Depends(get_db)):
-    repo = db.execute(text("SELECT name FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"), 
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository tracking rows missing.")
         
@@ -407,7 +569,11 @@ async def get_repo_tree(org_slug: str, repo_id: str, branch: str, filepath: Opti
 
 @router.get("/{repo_id}/blob/{branch}/{filepath:path}")
 async def get_repo_blob(org_slug: str, repo_id: str, branch: str, filepath: str, db: Session = Depends(get_db)):
-    repo = db.execute(text("SELECT name FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"), 
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository records missing.")
         
@@ -430,10 +596,11 @@ async def agent_create_commit(org_slug: str, repo_id: str, payload: CommitPayloa
     Guards protected tracking tracks before performing disk object writes.
     """
     # 1. API Protection Check
-    is_protected = db.execute(
+    is_protected_proxy = await db.execute(
         text("SELECT protected FROM branches WHERE repo_id = :repo_id AND name = :name"),
         {"repo_id": repo_id, "name": payload.branch}
-    ).scalar()
+    )
+    is_protected = is_protected_proxy.scalar()
     
     if is_protected or payload.branch == "main":
         raise HTTPException(
@@ -441,7 +608,11 @@ async def agent_create_commit(org_slug: str, repo_id: str, payload: CommitPayloa
             detail=f"Write Rejected: Branch '{payload.branch}' is protected. Direct Agent commits blocked."
         )
 
-    repo = db.execute(text("SELECT name FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"), 
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Context repository records absent.")
         

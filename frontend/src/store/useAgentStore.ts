@@ -1,6 +1,22 @@
 import { create } from 'zustand';
 
-export type AgentRole = 'planner' | 'engineer' | 'reviewer' | 'tester';
+export type AgentRole = 
+  | 'ceo' 
+  | 'product_manager' 
+  | 'scrum_master' 
+  | 'architect' 
+  | 'backend_engineer' 
+  | 'frontend_engineer' 
+  | 'data_engineer' 
+  | 'security_auditor' 
+  | 'peer_review_reviewer' 
+  | 'automation_tester' 
+  | 'infrastructure_engineer' 
+  | 'release_manager'
+  | 'planner' // legacy
+  | 'engineer' // legacy
+  | 'reviewer' // legacy
+  | 'tester'; // legacy
 
 export interface LogEntry {
   id: string;
@@ -53,8 +69,7 @@ interface AgentState {
   apiKeys: Record<string, string>;
   theme: string;
   currentRepoId: string | null;
-  demoMode: boolean;
-  demoSnapshot: DemoSnapshot | null;
+  currentOrgSlug: string;
 
   fetchFileTree: (repoId: string) => Promise<void>;
   connectWebSocket: (repoId: string) => void;
@@ -67,13 +82,7 @@ interface AgentState {
   setGraph: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setApiKey: (provider: string, key: string) => void;
   setTheme: (theme: string) => void;
-  startDemoSession: (payload: {
-    fileTree: FileNode[];
-    logs: LogEntry[];
-    nodes: GraphNode[];
-    edges: GraphEdge[];
-  }) => void;
-  stopDemoSession: () => void;
+  setOrgSlug: (slug: string) => void;
 }
 
 let ws: WebSocket | null = null;
@@ -84,6 +93,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   apiKeys: {},
   theme: 'light',
   currentRepoId: null,
+  currentOrgSlug: 'default',
   fileTree: [],
   logs: [],
   currentDiff: null,
@@ -103,6 +113,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   connectWebSocket: (repoId: string) => {
+    const { currentOrgSlug } = get();
     set({ currentRepoId: repoId });
     get().fetchFileTree(repoId);
 
@@ -110,11 +121,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       ws.close();
     }
 
-    ws = new WebSocket(`ws://localhost:8000/ws/${repoId}`);
+    ws = new WebSocket(`ws://localhost:8000/ws/${currentOrgSlug}/${repoId}`);
 
     ws.onopen = () => {
       set({ isConnected: true });
-      get().addLog({ message: "WebSocket connected to control plane", type: 'info' });
+      get().addLog({ message: `WebSocket connected to control plane (org: ${currentOrgSlug})`, type: 'info' });
     };
 
     ws.onmessage = (event) => {
@@ -172,44 +183,5 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     html.classList.remove('dark');
     html.classList.add(`theme-${theme}`);
   },
-
-  startDemoSession: ({ fileTree, logs, nodes, edges }) => {
-    const state = get();
-
-    if (!state.demoMode) {
-      set({
-        demoMode: true,
-        demoSnapshot: {
-          fileTree: state.fileTree,
-          logs: state.logs,
-          nodes: state.nodes,
-          edges: state.edges,
-        },
-        fileTree,
-        logs,
-        nodes,
-        edges,
-      });
-    }
-  },
-
-  stopDemoSession: () => {
-    const snapshot = get().demoSnapshot;
-
-    if (snapshot) {
-      set({
-        demoMode: false,
-        demoSnapshot: null,
-        fileTree: snapshot.fileTree,
-        logs: snapshot.logs,
-        nodes: snapshot.nodes,
-        edges: snapshot.edges,
-      });
-    } else {
-      set({
-        demoMode: false,
-        demoSnapshot: null,
-      });
-    }
-  },
+  setOrgSlug: (slug) => set({ currentOrgSlug: slug })
 }));

@@ -20,8 +20,8 @@ def run_cmd(cmd):
         return str(e)
 
 class HeadAgent(BaseAgent):
-    def __init__(self, name: str, instructions: str = "", api_keys: dict = None):
-        super().__init__(id=f"ceo-{generate_id()}", role=AgentRole.CEO, name=name, api_keys=api_keys)
+    def __init__(self, name: str, org_slug: str, instructions: str = "", api_keys: dict = None):
+        super().__init__(id=f"ceo-{generate_id()}", role=AgentRole.CEO, name=name, org_slug=org_slug, api_keys=api_keys)
         self.instructions = instructions
 
     async def process_message(self, message: dict):
@@ -33,9 +33,9 @@ class HeadAgent(BaseAgent):
             
             await self.log(f"Delegating task: {task_description[:50]}...", "action")
             
-            manager = TeamManager(f"Manager", self.id, self.api_keys)
+            manager = TeamManager(f"Manager", self.org_slug, self.id, self.api_keys)
             manager.set_log_callback(self.log_callback)
-            registry.register(manager)
+            registry.register(self.org_slug, manager)
             asyncio.create_task(manager.run())
             
             # Tell manager to execute the plan
@@ -45,8 +45,8 @@ class HeadAgent(BaseAgent):
             await self.log(f"Received status report from {message['from_name']}: {msg['status']}", "thought")
 
 class TeamManager(BaseAgent):
-    def __init__(self, name: str, parent_id: str, api_keys: dict = None):
-        super().__init__(id=f"mgr-{generate_id()}", role=AgentRole.MANAGER, name=name, parent_id=parent_id, api_keys=api_keys)
+    def __init__(self, name: str, org_slug: str, parent_id: str, api_keys: dict = None):
+        super().__init__(id=f"mgr-{generate_id()}", role=AgentRole.MANAGER, name=name, org_slug=org_slug, parent_id=parent_id, api_keys=api_keys)
         
     async def process_message(self, message: dict):
         msg = message.get("message")
@@ -54,14 +54,14 @@ class TeamManager(BaseAgent):
             task = msg.get("task")
             await self.log(f"Planning team execution for task...", "thought")
             
-            engineer = EngineerAgent("Engineer", self.id, self.api_keys)
-            reviewer = ReviewerAgent("Reviewer", self.id, self.api_keys)
+            engineer = EngineerAgent("Engineer", self.org_slug, self.id, self.api_keys)
+            reviewer = ReviewerAgent("Reviewer", self.org_slug, self.id, self.api_keys)
             
             engineer.set_log_callback(self.log_callback)
             reviewer.set_log_callback(self.log_callback)
             
-            registry.register(engineer)
-            registry.register(reviewer)
+            registry.register(self.org_slug, engineer)
+            registry.register(self.org_slug, reviewer)
             
             asyncio.create_task(engineer.run())
             asyncio.create_task(reviewer.run())
@@ -72,20 +72,20 @@ class TeamManager(BaseAgent):
         elif isinstance(msg, dict) and msg.get("cmd") == "engineer_done":
             await self.log(f"Engineer finished. Asking Reviewer to review.", "action")
             # Find reviewer
-            for agent in registry.agents.values():
+            for agent in registry.get_all_agents(self.org_slug):
                 if agent.role == AgentRole.REVIEWER and getattr(agent, 'parent_id', None) == self.id:
                     await self.send_message(agent, {"cmd": "review_work"})
                     break
                     
         elif isinstance(msg, dict) and msg.get("cmd") == "reviewer_done":
-            ceo = registry.get_agent(self.parent_id)
+            ceo = registry.get_agent(self.org_slug, self.parent_id)
             if ceo:
                 await self.send_message(ceo, {"status": "Task completed and reviewed successfully!"})
 
 
 class EngineerAgent(BaseAgent):
-    def __init__(self, name: str, parent_id: str, api_keys: dict = None):
-        super().__init__(id=f"eng-{generate_id()}", role=AgentRole.ENGINEER, name=name, parent_id=parent_id, api_keys=api_keys)
+    def __init__(self, name: str, org_slug: str, parent_id: str, api_keys: dict = None):
+        super().__init__(id=f"eng-{generate_id()}", role=AgentRole.ENGINEER, name=name, org_slug=org_slug, parent_id=parent_id, api_keys=api_keys)
 
     async def process_message(self, message: dict):
         msg = message.get("message")
@@ -123,13 +123,13 @@ class EngineerAgent(BaseAgent):
             else:
                 await self.log("No files were written based on the LLM output.", "error")
 
-            manager = registry.get_agent(self.parent_id)
+            manager = registry.get_agent(self.org_slug, self.parent_id)
             if manager:
                 await self.send_message(manager, {"cmd": "engineer_done"})
 
 class ReviewerAgent(BaseAgent):
-    def __init__(self, name: str, parent_id: str, api_keys: dict = None):
-        super().__init__(id=f"rev-{generate_id()}", role=AgentRole.REVIEWER, name=name, parent_id=parent_id, api_keys=api_keys)
+    def __init__(self, name: str, org_slug: str, parent_id: str, api_keys: dict = None):
+        super().__init__(id=f"rev-{generate_id()}", role=AgentRole.REVIEWER, name=name, org_slug=org_slug, parent_id=parent_id, api_keys=api_keys)
 
     async def process_message(self, message: dict):
         msg = message.get("message")
@@ -146,6 +146,6 @@ class ReviewerAgent(BaseAgent):
                 review = await self._call_llm(prompt, "You are a strict code reviewer.")
                 await self.log(f"Review Feedback: {review[:100]}...", "thought")
                 
-            manager = registry.get_agent(self.parent_id)
+            manager = registry.get_agent(self.org_slug, self.parent_id)
             if manager:
                 await self.send_message(manager, {"cmd": "reviewer_done"})
