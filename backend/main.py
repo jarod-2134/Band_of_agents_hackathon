@@ -9,7 +9,7 @@ from loguru import logger
 import uvicorn
 import bcrypt
 
-from agents.registry import registry
+from agents.registry import AgentRegistry
 from agents.corporate import HeadAgent
 from app.services.semantic_index import semantic_indexer
 from app.core.logger import setup_app_logging
@@ -90,29 +90,40 @@ app.include_router(analytics_router)
 app.include_router(websockets_router)
 app.include_router(search_router)
 
+registry = AgentRegistry()
+
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        # Maps org_slug -> list[WebSocket]
+        self.active_connections: dict[str, list[WebSocket]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, org_slug: str, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        if org_slug not in self.active_connections:
+            self.active_connections[org_slug] = []
+        self.active_connections[org_slug].append(websocket)
         # Send initial graph on connect
-        await self.send_graph_update()
+        await self.send_graph_update(org_slug)
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+    def disconnect(self, org_slug: str, websocket: WebSocket):
+        if org_slug in self.active_connections:
+            try:
+                self.active_connections[org_slug].remove(websocket)
+            except ValueError:
+                pass
 
-    async def broadcast(self, message: str):
-        for connection in self.active_connections:
+    async def broadcast(self, org_slug: str, message: str):
+        if org_slug not in self.active_connections:
+            return
+        for connection in self.active_connections[org_slug]:
             try:
                 await connection.send_text(message)
             except:
                 pass
 
-    async def send_graph_update(self):
-        graph_data = registry.get_graph()
-        await self.broadcast(json.dumps({
+    async def send_graph_update(self, org_slug: str):
+        graph_data = registry.get_graph(org_slug)
+        await self.broadcast(org_slug, json.dumps({
             "type": "graph_update",
             "payload": graph_data
         }))
@@ -120,39 +131,39 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # Hook up the registry to broadcast when the graph changes
-def on_graph_update():
+def on_graph_update(org_slug: str):
     # We must run the async broadcast in the event loop
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(manager.send_graph_update())
+        loop.create_task(manager.send_graph_update(org_slug))
     except RuntimeError:
-        logger.error("Error occurred while sending graph update.")
+        logger.error(f"Error occurred while sending graph update for org {org_slug}.")
 
 registry.on_graph_update = on_graph_update
 
-async def handle_agent_log(agent_id: str, agent_role: str, message: str, log_type: str):
-    await manager.broadcast(json.dumps({
+async def handle_agent_log(org_slug: str, agent_id: str, agent_role: str, message: str, log_type: str):
+    await manager.broadcast(org_slug, json.dumps({
         "type": "log",
         "agentRole": agent_role,
         "logType": log_type,
         "payload": message
     }))
     # also highlight active node
-    await manager.broadcast(json.dumps({
+    await manager.broadcast(org_slug, json.dumps({
         "type": "active_node",
         "payload": agent_id
     }))
     # briefly pause to let user see the highlight
     await asyncio.sleep(0.5)
 
-@app.websocket("/ws/{repo_id}")
-async def websocket_endpoint(websocket: WebSocket, repo_id: str):
-    await manager.connect(websocket)
+@app.websocket("/ws/{org_slug}/{repo_id}")
+async def websocket_endpoint(websocket: WebSocket, org_slug: str, repo_id: str):
+    await manager.connect(org_slug, websocket)
     
     try:
         while True:
             data = await websocket.receive_text()
-            logger.info(f"Received message from {repo_id}: {data}")
+            logger.info(f"Received message from {repo_id} (org: {org_slug}): {data}")
             
             try:
                 payload = json.loads(data)
@@ -161,12 +172,12 @@ async def websocket_endpoint(websocket: WebSocket, repo_id: str):
                     api_keys = payload.get("apiKeys", {})
                     
                     # Initialize the Corporate Structure on demand
-                    ceo = HeadAgent("AI CEO", instructions=instructions, api_keys=api_keys)
+                    ceo = HeadAgent("AI CEO", org_slug=org_slug, instructions=instructions, api_keys=api_keys)
                     ceo.set_log_callback(handle_agent_log)
-                    registry.register(ceo)
+                    registry.register(org_slug, ceo)
                     asyncio.create_task(ceo.run())
                     
-                    await manager.broadcast(json.dumps({
+                    await manager.broadcast(org_slug, json.dumps({
                         "type": "log",
                         "payload": f"Corporate simulation started with instructions: {instructions}",
                         "logType": "info"
@@ -178,9 +189,9 @@ async def websocket_endpoint(websocket: WebSocket, repo_id: str):
                 pass
             
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        # Clean up registry
-        registry.agents.clear()
+        manager.disconnect(org_slug, websocket)
+        # Clean up registry for this org
+        registry.clear_org(org_slug)
 
 def build_file_tree(dir_path: str, rel_path: str = ""):
     tree = []

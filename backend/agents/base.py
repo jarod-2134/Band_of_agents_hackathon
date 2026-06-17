@@ -1,15 +1,14 @@
 import asyncio
-import json
 import os
 from typing import Callable, Optional
 import litellm
 from loguru import logger
 
-from thenvoi import Agent
-from thenvoi.adapters import AnthropicAdapter
-from thenvoi.core.types import AdapterFeatures, Capability, Emit
-from thenvoi.runtime.types import ContactEventConfig, ContactEventStrategy
-from thenvoi.platform.event import ContactRequestReceivedEvent
+from band import Agent
+from band.adapters import GoogleADKAdapter # Swapped from AnthropicAdapter
+from band.core.types import AdapterFeatures, Capability, Emit
+from band.runtime.types import ContactEventConfig, ContactEventStrategy
+from band.platform.event import ContactRequestReceivedEvent
 
 from agents.actions import AgentRole
 from database import AsyncSessionLocal
@@ -19,18 +18,21 @@ from models import AgentActionLog
 TRUSTED_TEAM_HANDLES = {f"@{role.value}-agent" for role in AgentRole}
 
 class BaseAgent:
-    def __init__(self, id: str, role: str, name: str, parent_id: Optional[str] = None, api_keys: dict = None):
+    def __init__(self, id: str, role: str, name: str, org_slug: str, parent_id: Optional[str] = None, api_keys: dict = None, system_prompt: str = ""):
         self.id = id
         self.role = role
         self.name = name
+        self.org_slug = org_slug
         self.parent_id = parent_id
         self.api_keys = api_keys or {}
         self.inbox = asyncio.Queue()
         self.running = False
         self.log_callback = None
         
-        self.band_key = self.api_keys.get("bandai") or os.getenv("BAND_API_KEY")
+        self.band_id = self.api_keys.get("agent_id")
+        self.band_key = self.api_keys.get("bandai")
         self.band_agent: Optional[Agent] = None
+        self.system_prompt = system_prompt
         self._init_band_context()
 
     def _init_band_context(self):
@@ -42,21 +44,25 @@ class BaseAgent:
             emit={Emit.EXECUTION}
         )
         
-        self.adapter = AnthropicAdapter(
-            model="claude-3-5-sonnet-20240620",
-            prompt=f"You are the operational {self.name} working strictly as the role: {self.role}.",
+        # Updated to GoogleAdapter to match the gemini-2.5-flash native schemas
+        self.adapter = GoogleADKAdapter(
+            model="gemini-2.5-flash",
+            custom_section=self.system_prompt,
             features=features
         )
         
         self.band_agent = Agent.create(
             adapter=self.adapter,
-            agent_id=self.id,
+            agent_id=self.band_id,
             api_key=self.band_key,
+            ws_url=os.getenv("BAND_WS_URL"),
+            rest_url=os.getenv("BAND_REST_URL"),
             contact_config=ContactEventConfig(
                 strategy=ContactEventStrategy.CALLBACK,
                 on_event=self._handle_band_contact_handshake,
                 broadcast_changes=True
             )
+
         )
 
     async def _handle_band_contact_handshake(self, event: ContactRequestReceivedEvent, tools) -> None:
@@ -74,7 +80,7 @@ class BaseAgent:
         
         if self.log_callback:
             try:
-                await self.log_callback(self.id, self.role, message, action)
+                await self.log_callback(self.org_slug, self.id, self.role, message, action)
             except Exception:
                 pass
             
@@ -105,17 +111,19 @@ class BaseAgent:
             ],
             "temperature": 0.1
         }
-        model = "gpt-4o"
+        
+        # litellm requires the gemini/ prefix to target the Google API
+        model = "gemini/gemini-2.5-flash"
 
         if self.band_key:
             kwargs["api_key"] = self.band_key
             kwargs["api_base"] = "https://app.band.ai/v1"
-            model = "openai/gpt-4o"
-        elif self.api_keys.get("openai"):
-            kwargs["api_key"] = self.api_keys["openai"]
-        elif self.api_keys.get("anthropic"):
-            kwargs["api_key"] = self.api_keys["anthropic"]
-            model = "claude-3-5-sonnet-20240620"
+            # If routing through Band proxy instead of litellm directly, drop the prefix
+            model = "gemini-2.5-flash" 
+        elif self.api_keys.get("gemini"):
+            kwargs["api_key"] = self.api_keys["gemini"]
+        elif os.getenv("GEMINI_API_KEY"):
+            kwargs["api_key"] = os.getenv("GEMINI_API_KEY")
 
         try:
             response = await litellm.acompletion(model=model, **kwargs)
@@ -138,6 +146,6 @@ class BaseAgent:
                 await self.process_message(msg)
                 self.inbox.task_done()
             except asyncio.TimeoutError:
-                await self.idle_thought()
+                pass
             except Exception as e:
                 logger.error(f"Inbox loop exception: {e}")

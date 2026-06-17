@@ -1,37 +1,49 @@
 class AgentRegistry:
     def __init__(self):
-        self.agents = {}
+        # Maps org_slug -> {agent_id: agent}
+        self._org_agents = {}
         self.on_graph_update = None
 
-    def register(self, agent):
-        self.agents[agent.id] = agent
+    def register(self, org_slug, agent):
+        if org_slug not in self._org_agents:
+            self._org_agents[org_slug] = {}
+        self._org_agents[org_slug][agent.id] = agent
         if self.on_graph_update:
-            self.on_graph_update()
+            self.on_graph_update(org_slug)
 
-    def unregister(self, agent_id):
-        if agent_id in self.agents:
-            del self.agents[agent_id]
+    def unregister(self, org_slug, agent_id):
+        if org_slug in self._org_agents and agent_id in self._org_agents[org_slug]:
+            del self._org_agents[org_slug][agent_id]
             if self.on_graph_update:
-                self.on_graph_update()
+                self.on_graph_update(org_slug)
 
-    def get_agent(self, agent_id):
-        return self.agents.get(agent_id)
+    def get_agent(self, org_slug, agent_id):
+        return self._org_agents.get(org_slug, {}).get(agent_id)
 
-    def find_subsidiary_by_role(self, parent_id: str, role: str):
-        for agent in self.agents.values():
+    def get_all_agents(self, org_slug):
+        return list(self._org_agents.get(org_slug, {}).values())
+
+    def clear_org(self, org_slug):
+        if org_slug in self._org_agents:
+            del self._org_agents[org_slug]
+            if self.on_graph_update:
+                self.on_graph_update(org_slug)
+
+    def find_subsidiary_by_role(self, org_slug: str, parent_id: str, role: str):
+        for agent in self._org_agents.get(org_slug, {}).values():
             if getattr(agent, 'parent_id', None) == parent_id and agent.role == role:
                 return agent
         return None
 
-    def get_graph(self):
+    def get_graph(self, org_slug: str):
         """
-        Generates nodes and directional edges representing the active cluster topology.
-        Maps unique HSL color palettes to the newly expanded 12-role engine profiles.
+        Generates nodes and directional edges representing the active cluster topology for a specific org.
         """
         nodes = []
         edges = []
         
-        for agent in self.agents.values():
+        agents = self._org_agents.get(org_slug, {})
+        for agent in agents.values():
             # Default fallback border configuration color
             color = "#64748b" # Slate
             

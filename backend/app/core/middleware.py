@@ -6,6 +6,17 @@ from app.core.security import ALGORITHM, JWT_SECRET
 
 class LifecycleSecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+
+        exempt_paths = [
+            "/docs",          # Swagger UI
+            "/redoc",         # ReDoc
+            "/openapi.json",  # OpenAPI Schema
+            "/api/v1/auth/login" # Login page
+        ]
+        
+        if request.url.path in exempt_paths or request.url.path.startswith("/auth/login"):
+            return await call_next(request)
+        
         # 1. Get the Authorization Header
         auth_header = request.headers.get("Authorization")
         
