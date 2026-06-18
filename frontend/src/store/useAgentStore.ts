@@ -83,6 +83,11 @@ interface AgentState {
   setApiKey: (provider: string, key: string) => void;
   setTheme: (theme: string) => void;
   setOrgSlug: (slug: string) => void;
+
+  demoMode: boolean;
+  demoSnapshot: DemoSnapshot | null;
+  startDemoSession: (snapshot: DemoSnapshot) => void;
+  stopDemoSession: () => void;
 }
 
 let ws: WebSocket | null = null;
@@ -183,5 +188,35 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     html.classList.remove('dark');
     html.classList.add(`theme-${theme}`);
   },
-  setOrgSlug: (slug) => set({ currentOrgSlug: slug })
+  setOrgSlug: (slug) => set({ currentOrgSlug: slug }),
+
+  startDemoSession: (snapshot) => {
+    set((state) => ({
+      demoMode: true,
+      demoSnapshot: {
+        fileTree: state.fileTree,
+        logs: state.logs,
+        nodes: state.nodes,
+        edges: state.edges
+      },
+      fileTree: snapshot.fileTree,
+      logs: snapshot.logs,
+      nodes: snapshot.nodes,
+      edges: snapshot.edges
+    }));
+  },
+
+  stopDemoSession: () => {
+    set((state) => {
+      if (!state.demoMode || !state.demoSnapshot) return state;
+      return {
+        demoMode: false,
+        fileTree: state.demoSnapshot.fileTree,
+        logs: state.demoSnapshot.logs,
+        nodes: state.demoSnapshot.nodes,
+        edges: state.demoSnapshot.edges,
+        demoSnapshot: null
+      };
+    });
+  }
 }));

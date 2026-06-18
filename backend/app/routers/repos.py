@@ -23,6 +23,11 @@ router = APIRouter(prefix="/orgs/{org_slug}/repos", tags=["Repository & Git Engi
 class RepoCreatePayload(BaseModel):
     name: str
 
+class RepoClonePayload(BaseModel):
+    name: str
+    repo_url: str
+    github_token: Optional[str] = None
+
 class BranchCreatePayload(BaseModel):
     name: str
     source_branch: Optional[str] = "main"
@@ -66,7 +71,7 @@ async def async_cascade_repo_purge(org_slug: str, repo_id: str, repo_name: str, 
     # 1. Clear all vector embeddings from the Semantic Indexer
     try:
         if hasattr(semantic_indexer, "delete_repository_embeddings"):
-            semantic_indexer.delete_repository_embeddings(repo_id)
+            await semantic_indexer.delete_repository_embeddings(repo_id)
             logger.info(f"✨ Step 1/4 Complete: Dropped semantic embeddings for {repo_id}")
     except Exception as e:
         logger.error(f"Failed to clear embeddings for {repo_id}: {e}")
@@ -262,6 +267,157 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
         logger.warning(f"Event synchronization warning: {e}")
 
     return {"status": "created", "repo_id": str(repo_id), "path": unique_folder_name}
+
+@router.post("/clone", status_code=status.HTTP_201_CREATED)
+async def clone_repository(org_slug: str, payload: RepoClonePayload, db: Session = Depends(get_db)):
+    repo_path = resolve_repo_disk_path(org_slug, payload.name)
+    unique_folder_name = f"{org_slug}-{payload.name}"
+    
+    if os.path.exists(repo_path):
+        raise HTTPException(status_code=400, detail="Repository folder collision on disk.")
+
+    default_visibility = "private" if payload.github_token else "public"
+    default_description = f"Cloned repository {payload.name} inside organization {org_slug}."
+
+    # Step 1: Insert repository record into the database
+    try:
+        result = await db.execute(
+            text("""
+                INSERT INTO repos (name, org_slug, fs_path, default_branch, visibility, description) 
+                VALUES (:name, :org_slug, :fs_path, 'main', :visibility, :description) 
+                RETURNING id
+            """),
+            {
+                "name": payload.name, 
+                "org_slug": org_slug, 
+                "fs_path": unique_folder_name,
+                "visibility": default_visibility,
+                "description": default_description
+            }
+        )
+        repo_id = result.scalar_one()
+        await db.flush() 
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Clone step 1 failed: DB insertion exception: {e}")
+        raise HTTPException(status_code=500, detail="Failed to register repository record.")
+
+    # Step 2: Clone bare repo
+    try:
+        os.makedirs(repo_path, exist_ok=True)
+        callbacks = pygit2.RemoteCallbacks()
+        if payload.github_token:
+            credentials = pygit2.UserPass("x-access-token", payload.github_token)
+            callbacks = pygit2.RemoteCallbacks(credentials=credentials)
+        
+        git_repo = pygit2.clone_repository(payload.repo_url, repo_path, bare=True, callbacks=callbacks)
+        
+        # Get actual default branch
+        head_ref = git_repo.head
+        default_branch = head_ref.shorthand
+        actual_git_sha = str(head_ref.target)
+        
+        # Update repo with correct default branch
+        await db.execute(
+            text("UPDATE repos SET default_branch = :branch WHERE id = :id"),
+            {"branch": default_branch, "id": repo_id}
+        )
+        await db.flush()
+
+        logger.info(f"Clone step 2 complete: Repo cloned, default branch {default_branch}, head sha {actual_git_sha}")
+        
+    except Exception as e:
+        if os.path.exists(repo_path):
+            shutil.rmtree(repo_path)
+        await db.rollback()
+        logger.error(f"Clone step 2 failed: pygit2 clone error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clone repository: {e}")
+
+    # Step 3: Seed metadata tracking records
+    try:
+        user_proxy = await db.execute(text("SELECT id FROM users LIMIT 1"))
+        valid_user_id = user_proxy.scalar()
+
+        if not valid_user_id:
+            raise HTTPException(status_code=500, detail="No users exist to register repo.")
+
+        head_commit = git_repo.get(actual_git_sha)
+        
+        # Insert commit tracking row
+        await db.execute(
+            text("""
+                INSERT INTO commits (
+                    sha, org_slug, repo_id, message, author_name, 
+                    author_email, branch, parent_shas, files_changed, 
+                    insertions, deletions, committed_at
+                )
+                VALUES (
+                    :sha, :org_slug, :repo_id, :message, :author_name, 
+                    :author_email, :branch, '[]'::jsonb, 0, 
+                    0, 0, :committed_at
+                )
+                ON CONFLICT (sha) DO NOTHING
+            """),
+            {
+                "sha": actual_git_sha,
+                "org_slug": org_slug, 
+                "repo_id": repo_id,
+                "branch": default_branch,
+                "message": head_commit.message,
+                "author_name": head_commit.author.name,
+                "author_email": head_commit.author.email,
+                "committed_at": datetime.now(timezone.utc)
+            }
+        )
+        await db.flush()
+
+        # Insert branch row
+        await db.execute(
+            text("""
+                INSERT INTO branches (repo_id, name, head_sha, status, protected, created_by)
+                VALUES (:repo_id, :name, :head_sha, 'open', true, :created_by)
+            """),
+            {
+                "repo_id": repo_id,
+                "name": default_branch,
+                "head_sha": actual_git_sha,
+                "created_by": valid_user_id
+            }
+        )
+        await db.flush()
+        await db.commit()
+        
+    except Exception as e:
+        if os.path.exists(repo_path):
+            shutil.rmtree(repo_path)
+        await db.rollback()
+        logger.error(f"Clone step 3 failed: Seeding metadata failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to seed branch context.")
+
+    # Step 4: Index the HEAD files asynchronously
+    try:
+        import asyncio
+        async def index_tree():
+            async def walk_tree(tree_obj, path_prefix=""):
+                for entry in tree_obj:
+                    if entry.type == pygit2.GIT_OBJ_BLOB:
+                        blob = git_repo.get(entry.id)
+                        content = blob.data.decode('utf-8', errors='ignore')
+                        full_path = os.path.join(path_prefix, entry.name).replace("\\\\", "/")
+                        if hasattr(semantic_indexer, "index_file_change"):
+                            await semantic_indexer.index_file_change(str(repo_id), default_branch, full_path, content)
+                    elif entry.type == pygit2.GIT_OBJ_TREE:
+                        sub_tree = git_repo.get(entry.id)
+                        await walk_tree(sub_tree, os.path.join(path_prefix, entry.name).replace("\\\\", "/"))
+            
+            await walk_tree(head_commit.tree)
+        
+        asyncio.create_task(index_tree())
+    except Exception as e:
+        logger.error(f"Clone step 4 failed: Semantic indexing error: {e}")
+
+    return {"status": "cloned", "repo_id": str(repo_id), "path": unique_folder_name}
+
 
 
 @router.get("/{repo_id}")
@@ -656,7 +812,7 @@ async def agent_create_commit(org_slug: str, repo_id: str, payload: CommitPayloa
     try:
         for file in payload.files:
             if hasattr(semantic_indexer, "index_file_change"):
-                semantic_indexer.index_file_change(repo_id, payload.branch, file.path, file.content)
+                await semantic_indexer.index_file_change(repo_id, payload.branch, file.path, file.content)
         logger.info(f"Semantic mapping indexes refreshed for commit {new_commit_sha}")
     except Exception as e:
         logger.error(f"Semantic indexing pipeline exception: {e}")
@@ -673,3 +829,30 @@ async def agent_create_commit(org_slug: str, repo_id: str, payload: CommitPayloa
         "sha": str(new_commit_sha),
         "branch": payload.branch
     }
+
+# =============================================================================
+# SECTION 5: AST KNOWLEDGE GRAPH
+# =============================================================================
+
+@router.get("/{repo_id}/graph")
+async def get_repo_graph(org_slug: str, repo_id: str, db: Session = Depends(get_db)):
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"), 
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    if not repo_proxy.mappings().first():
+        raise HTTPException(status_code=404, detail="Repository not found.")
+        
+    nodes_proxy = await db.execute(
+        text("SELECT id, name, node_type, file_path FROM entity_nodes WHERE repo_id = :repo_id"),
+        {"repo_id": repo_id}
+    )
+    nodes = [dict(row) for row in nodes_proxy.mappings().all()]
+    
+    edges_proxy = await db.execute(
+        text("SELECT source_id, target_id, relation_type FROM entity_edges WHERE repo_id = :repo_id"),
+        {"repo_id": repo_id}
+    )
+    edges = [dict(row) for row in edges_proxy.mappings().all()]
+    
+    return {"nodes": nodes, "edges": edges}

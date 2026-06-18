@@ -34,7 +34,7 @@ if not exist "venv\" (
 )
 call venv\Scripts\activate
 echo Installing Python dependencies...
-pip install fastapi uvicorn websockets
+pip install -r requirements.txt
 cd /d "%~dp0"
 
 echo.

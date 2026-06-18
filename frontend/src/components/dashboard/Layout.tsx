@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useAgentStore } from '@/store/useAgentStore';
-import { GitBranch, LayoutDashboard, Settings, BarChart3, History } from 'lucide-react';
+import { GitBranch, LayoutDashboard, Settings, BarChart3, History, Network } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 interface LayoutProps {
@@ -64,6 +64,16 @@ export function Layout({ children }: LayoutProps) {
             title="Task History"
           >
             <History className="w-5 h-5" />
+          </NavLink>
+
+          <NavLink 
+            to="/graph"
+            className={({ isActive }) => 
+              `p-3 rounded-lg flex items-center justify-center transition-colors ${isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`
+            }
+            title="AST Graph"
+          >
+            <Network className="w-5 h-5" />
           </NavLink>
 
           <div className="flex-1" />

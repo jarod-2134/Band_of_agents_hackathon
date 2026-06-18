@@ -3,7 +3,8 @@ import { useAgentStore, type FileNode } from '@/store/useAgentStore';
 import { GraphViewer } from './GraphViewer';
 import { DiffViewer } from './DiffViewer';
 import { LogTerminal } from './LogTerminal';
-import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3 } from 'lucide-react';
+import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3, Plus } from 'lucide-react';
+import { CloneRepoModal } from './CloneRepoModal';
 
 const mockDiffs: Record<string, { original: string; modified: string }> = {
   'frontend/src/Login.tsx': {
@@ -135,6 +136,8 @@ A multi-agent software delivery workspace where PM, Developer, Reviewer, and QA 
 
 export function Dashboard() {
   const fileTree = useAgentStore((state) => state.fileTree);
+  const connectWebSocket = useAgentStore((state) => state.connectWebSocket);
+  const [showCloneModal, setShowCloneModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'graph' | 'diff'>('graph');
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [selectedDiff, setSelectedDiff] = useState({
@@ -196,8 +199,15 @@ export function Dashboard() {
   return (
     <div className="flex-1 flex overflow-hidden">
       <div className="w-64 border-r border-border bg-card flex flex-col">
-        <div className="px-4 py-2 border-b border-border font-bold text-xs tracking-widest text-muted-foreground">
+        <div className="px-4 py-2 border-b border-border font-bold text-xs tracking-widest text-muted-foreground flex justify-between items-center">
           WORKSPACE
+          <button 
+            onClick={() => setShowCloneModal(true)} 
+            className="hover:text-primary transition-colors p-1 -mr-1"
+            title="Clone Repository"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="px-4 py-3 border-b border-border">
@@ -253,6 +263,14 @@ export function Dashboard() {
           <LogTerminal isOpen={terminalOpen} onToggle={() => setTerminalOpen(!terminalOpen)} />
         </div>
       </div>
+
+      <CloneRepoModal 
+        isOpen={showCloneModal}
+        onClose={() => setShowCloneModal(false)}
+        onSuccess={(repoId) => {
+          connectWebSocket(repoId);
+        }}
+      />
     </div>
   );
 }
