@@ -1,6 +1,6 @@
-import { DiffEditor } from '@monaco-editor/react';
+import { useState, useEffect } from 'react';
 import { useAgentStore } from '@/store/useAgentStore';
-import { Code2 } from 'lucide-react';
+import { Code2, Save, Loader2 } from 'lucide-react';
 
 type DiffData = {
   filePath: string;
@@ -13,14 +13,50 @@ type DiffViewerProps = {
 };
 
 export function DiffViewer({ diff }: DiffViewerProps) {
-  const theme = useAgentStore((state) => state.theme);
-  const isDarkTheme = ['dark', 'cyberpunk', 'ocean'].includes(theme);
+  const currentOrgSlug = useAgentStore((state) => state.currentOrgSlug);
+  const currentRepoId = useAgentStore((state) => state.currentRepoId);
+  
+  const [content, setContent] = useState(diff.modified);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const language = diff.filePath.endsWith('.py')
-    ? 'python'
-    : diff.filePath.endsWith('.md')
-      ? 'markdown'
-      : 'typescript';
+  useEffect(() => {
+    setContent(diff.modified);
+  }, [diff]);
+
+  const handleSave = async () => {
+    if (!currentOrgSlug || !currentRepoId) return;
+    setIsSaving(true);
+    try {
+      const r = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`);
+      const data = await r.json();
+      const repo = data.repositories?.find((r: any) => r.fs_path === currentRepoId);
+      if (!repo) throw new Error("Repo not found");
+
+      const response = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch: 'main',
+          message: `Update ${diff.filePath} via Web Editor`,
+          changes: [{
+            action: 'modify',
+            file_path: diff.filePath,
+            content: content
+          }]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save");
+      }
+      alert('Changes saved successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Error saving changes');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="w-full h-full bg-card border border-border rounded-lg overflow-hidden flex flex-col shadow-sm">
@@ -33,31 +69,27 @@ export function DiffViewer({ diff }: DiffViewerProps) {
           <div>
             <div className="font-mono text-sm font-bold text-foreground">{diff.filePath}</div>
             <div className="text-xs text-muted-foreground">
-              Modified by Developer Agent · ready for Reviewer Agent
+              Editable Workspace View
             </div>
           </div>
         </div>
 
-        <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
-          code diff
-        </span>
+        <button 
+          onClick={handleSave}
+          disabled={isSaving}
+          className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+        >
+          {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          Commit Changes
+        </button>
       </div>
 
-      <div className="flex-1 min-h-0">
-        <DiffEditor
-          key={`${diff.filePath}-${diff.original.length}-${diff.modified.length}`}
-          height="100%"
-          language={language}
-          theme={isDarkTheme ? 'vs-dark' : 'light'}
-          original={diff.original}
-          modified={diff.modified}
-          options={{
-            renderSideBySide: true,
-            readOnly: true,
-            minimap: { enabled: false },
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
+      <div className="flex-1 min-h-0 bg-[#1e1e1e] p-4">
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          spellCheck={false}
+          className="w-full h-full bg-transparent text-gray-300 font-mono text-[13px] leading-relaxed resize-none focus:outline-none"
         />
       </div>
     </div>

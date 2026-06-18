@@ -145,10 +145,16 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
 
     # Step 1: Insert repository record into the database
     try:
+        await db.execute(
+            text("INSERT INTO orgs (name, slug, plan) VALUES (:slug, :slug, 'pro') ON CONFLICT (slug) DO NOTHING"),
+            {"slug": org_slug}
+        )
+        embedding = semantic_indexer.encode_text(default_description)
+        embedding_str = json.dumps(embedding)
         result = await db.execute(
             text("""
-                INSERT INTO repos (name, org_slug, fs_path, default_branch, visibility, description) 
-                VALUES (:name, :org_slug, :fs_path, :default_branch, :visibility, :description) 
+                INSERT INTO repos (name, org_slug, fs_path, default_branch, visibility, description, embedding) 
+                VALUES (:name, :org_slug, :fs_path, :default_branch, :visibility, :description, :embedding) 
                 RETURNING id
             """),
             {
@@ -157,7 +163,8 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
                 "fs_path": unique_folder_name,
                 "default_branch": default_branch,
                 "visibility": default_visibility,
-                "description": default_description
+                "description": default_description,
+                "embedding": embedding_str
             }
         )
         repo_id = result.scalar_one()
@@ -213,17 +220,20 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
             raise HTTPException(status_code=500, detail="No users exist to register repo.")
 
         # A. Insert the valid root commit tracking row into the DB
+        commit_message = 'Initial empty repository structure initialization'
+        commit_embedding = semantic_indexer.encode_text(commit_message)
+        
         await db.execute(
             text("""
                 INSERT INTO commits (
                     sha, org_slug, repo_id, message, author_name, 
                     author_email, branch, parent_shas, files_changed, 
-                    insertions, deletions, committed_at
+                    insertions, deletions, committed_at, embedding
                 )
                 VALUES (
-                    :sha, :org_slug, :repo_id, 'Initial empty repository structure initialization', 'System Agent', 
+                    :sha, :org_slug, :repo_id, :message, 'System Agent', 
                     'system@mesh.internal', :branch, '[]'::jsonb, 0, 
-                    0, 0, :committed_at
+                    0, 0, :committed_at, :embedding
                 )
                 ON CONFLICT (sha) DO NOTHING
             """),
@@ -232,7 +242,9 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
                 "org_slug": org_slug, 
                 "repo_id": repo_id,
                 "branch": default_branch,
-                "committed_at": datetime.now(timezone.utc)
+                "message": commit_message,
+                "committed_at": datetime.now(timezone.utc),
+                "embedding": json.dumps(commit_embedding)
             }
         )
         await db.flush()
@@ -281,10 +293,16 @@ async def clone_repository(org_slug: str, payload: RepoClonePayload, db: Session
 
     # Step 1: Insert repository record into the database
     try:
+        await db.execute(
+            text("INSERT INTO orgs (name, slug, plan) VALUES (:slug, :slug, 'pro') ON CONFLICT (slug) DO NOTHING"),
+            {"slug": org_slug}
+        )
+        embedding = semantic_indexer.encode_text(default_description)
+        embedding_str = json.dumps(embedding)
         result = await db.execute(
             text("""
-                INSERT INTO repos (name, org_slug, fs_path, default_branch, visibility, description) 
-                VALUES (:name, :org_slug, :fs_path, 'main', :visibility, :description) 
+                INSERT INTO repos (name, org_slug, fs_path, default_branch, visibility, description, embedding) 
+                VALUES (:name, :org_slug, :fs_path, 'main', :visibility, :description, :embedding) 
                 RETURNING id
             """),
             {
@@ -292,7 +310,8 @@ async def clone_repository(org_slug: str, payload: RepoClonePayload, db: Session
                 "org_slug": org_slug, 
                 "fs_path": unique_folder_name,
                 "visibility": default_visibility,
-                "description": default_description
+                "description": default_description,
+                "embedding": embedding_str
             }
         )
         repo_id = result.scalar_one()
@@ -344,17 +363,20 @@ async def clone_repository(org_slug: str, payload: RepoClonePayload, db: Session
         head_commit = git_repo.get(actual_git_sha)
         
         # Insert commit tracking row
+        commit_message = head_commit.message
+        commit_embedding = semantic_indexer.encode_text(commit_message)
+
         await db.execute(
             text("""
                 INSERT INTO commits (
                     sha, org_slug, repo_id, message, author_name, 
                     author_email, branch, parent_shas, files_changed, 
-                    insertions, deletions, committed_at
+                    insertions, deletions, committed_at, embedding
                 )
                 VALUES (
                     :sha, :org_slug, :repo_id, :message, :author_name, 
                     :author_email, :branch, '[]'::jsonb, 0, 
-                    0, 0, :committed_at
+                    0, 0, :committed_at, :embedding
                 )
                 ON CONFLICT (sha) DO NOTHING
             """),
@@ -363,10 +385,11 @@ async def clone_repository(org_slug: str, payload: RepoClonePayload, db: Session
                 "org_slug": org_slug, 
                 "repo_id": repo_id,
                 "branch": default_branch,
-                "message": head_commit.message,
+                "message": commit_message,
                 "author_name": head_commit.author.name,
                 "author_email": head_commit.author.email,
-                "committed_at": datetime.now(timezone.utc)
+                "committed_at": datetime.now(timezone.utc),
+                "embedding": json.dumps(commit_embedding)
             }
         )
         await db.flush()

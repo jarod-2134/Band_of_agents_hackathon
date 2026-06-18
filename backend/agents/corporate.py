@@ -7,7 +7,7 @@ from .base import BaseAgent
 from .actions import AgentRole
 from .registry import registry
 from database import AsyncSessionLocal
-from models import AgentActionLog, GitHubCommit
+from models import AgentActionLog, Commit
 
 def generate_id():
     return str(uuid.uuid4())[:8]

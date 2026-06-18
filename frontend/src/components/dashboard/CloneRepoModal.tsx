@@ -47,7 +47,7 @@ export function CloneRepoModal({ isOpen, onClose, onSuccess }: CloneRepoModalPro
       }
 
       setFormData({ name: '', repoUrl: '', githubToken: '' });
-      if (onSuccess) onSuccess(responseData.repo_id);
+      if (onSuccess) onSuccess(responseData.path);
       onClose();
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred');

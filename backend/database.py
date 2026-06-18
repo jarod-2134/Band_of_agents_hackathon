@@ -28,4 +28,13 @@ async def get_db():
 async def init_db():
     # Initialize tables
     async with engine.begin() as conn:
+        # Enable pgvector extension
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         await conn.run_sync(Base.metadata.create_all)
+        
+    # Check for default user and create if missing
+    async with AsyncSessionLocal() as session:
+        user = await session.execute(text("SELECT id FROM users LIMIT 1"))
+        if not user.scalar():
+            await session.execute(text("INSERT INTO users (name, email) VALUES ('System Admin', 'admin@example.com')"))
+            await session.commit()

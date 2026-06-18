@@ -27,7 +27,7 @@ class AgentUpdatePayload(BaseModel):
     status: Optional[str] = None
 
 class TaskAssignPayload(BaseModel):
-    issue_id: int
+    issue_id: str
 
 
 # --- Helper: Factory to map DB Agents to Python Classes ---

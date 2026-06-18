@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAgentStore, type FileNode } from '@/store/useAgentStore';
 import { GraphViewer } from './GraphViewer';
 import { DiffViewer } from './DiffViewer';
 import { LogTerminal } from './LogTerminal';
-import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3, Plus } from 'lucide-react';
+import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3, Plus, Trash2 } from 'lucide-react';
 import { CloneRepoModal } from './CloneRepoModal';
 
 const mockDiffs: Record<string, { original: string; modified: string }> = {
@@ -137,7 +137,21 @@ A multi-agent software delivery workspace where PM, Developer, Reviewer, and QA 
 export function Dashboard() {
   const fileTree = useAgentStore((state) => state.fileTree);
   const connectWebSocket = useAgentStore((state) => state.connectWebSocket);
+  const currentOrgSlug = useAgentStore((state) => state.currentOrgSlug);
+  const currentRepoId = useAgentStore((state) => state.currentRepoId);
+  const [repos, setRepos] = useState<{ id: string; name: string; fs_path: string }[]>([]);
   const [showCloneModal, setShowCloneModal] = useState(false);
+
+  useEffect(() => {
+    fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.repositories) {
+          setRepos(data.repositories);
+        }
+      })
+      .catch(err => console.error("Failed to load repos", err));
+  }, [currentOrgSlug]);
   const [activeTab, setActiveTab] = useState<'graph' | 'diff'>('graph');
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [selectedDiff, setSelectedDiff] = useState({
@@ -211,8 +225,45 @@ export function Dashboard() {
         </div>
 
         <div className="px-4 py-3 border-b border-border">
-          <div className="text-sm font-semibold text-foreground">Repository</div>
-          <div className="text-xs text-muted-foreground mt-1">Project files modified by agents</div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-sm font-semibold text-foreground">Repository</div>
+            {currentRepoId && (
+              <button 
+                onClick={() => {
+                  const repo = repos.find(r => r.fs_path === currentRepoId);
+                  if (repo && window.confirm(`Are you sure you want to delete ${repo.name}?`)) {
+                    fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}`, { method: 'DELETE' })
+                      .then(() => {
+                        connectWebSocket('');
+                        return fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`);
+                      })
+                      .then(res => res.json())
+                      .then(data => data.repositories ? setRepos(data.repositories) : setRepos([]))
+                      .catch(err => console.error("Failed to delete repo", err));
+                  }
+                }}
+                className="text-muted-foreground hover:text-destructive transition-colors"
+                title="Delete Repository"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <select 
+            className="w-full text-sm bg-background border border-border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
+            value={currentRepoId || ""}
+            onChange={(e) => {
+              if (e.target.value) {
+                connectWebSocket(e.target.value);
+              }
+            }}
+          >
+            <option value="" disabled>Select a repository...</option>
+            {repos.map(r => (
+              <option key={r.id} value={r.fs_path}>{r.name}</option>
+            ))}
+          </select>
+          <div className="text-xs text-muted-foreground mt-2">Project files modified by agents</div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
@@ -267,8 +318,13 @@ export function Dashboard() {
       <CloneRepoModal 
         isOpen={showCloneModal}
         onClose={() => setShowCloneModal(false)}
-        onSuccess={(repoId) => {
-          connectWebSocket(repoId);
+        onSuccess={(repoPath) => {
+          connectWebSocket(repoPath);
+          fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.repositories) setRepos(data.repositories);
+            });
         }}
       />
     </div>

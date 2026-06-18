@@ -5,6 +5,7 @@ import { Settings } from './components/dashboard/Settings'
 import { Analytics } from './components/dashboard/Analytics'
 import { TaskHistory } from './components/dashboard/TaskHistory'
 import { ASTGraph } from './components/dashboard/ASTGraph'
+import { AgentManager } from './components/dashboard/AgentManager'
 
 import { Home } from './components/landing/Home'
 import { Login } from './components/landing/Login'
@@ -23,6 +24,7 @@ function App() {
         <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
         <Route path="/history" element={<Layout><TaskHistory /></Layout>} />
         <Route path="/graph" element={<Layout><ASTGraph /></Layout>} />
+        <Route path="/agents" element={<Layout><AgentManager /></Layout>} />
         
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

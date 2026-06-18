@@ -3,7 +3,7 @@ from sentence_transformers import SentenceTransformer
 from loguru import logger
 from sqlalchemy import delete
 from database import AsyncSessionLocal
-from models import CodeNode, GitHubCommit, EntityNode, EntityEdge
+from models import CodeNode, Commit, EntityNode, EntityEdge
 from tree_sitter import Language, Parser
 import tree_sitter_python
 import tree_sitter_javascript
@@ -138,7 +138,7 @@ class SemanticIndexingService:
         try:
             async with AsyncSessionLocal() as session:
                 await session.execute(delete(CodeNode).where(CodeNode.repo_id == repo_id))
-                await session.execute(delete(GitHubCommit).where(GitHubCommit.repo_id == repo_id))
+                await session.execute(delete(Commit).where(Commit.repo_id == repo_id))
                 await session.execute(delete(EntityEdge).where(EntityEdge.repo_id == repo_id))
                 await session.execute(delete(EntityNode).where(EntityNode.repo_id == repo_id))
                 await session.commit()

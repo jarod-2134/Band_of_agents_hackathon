@@ -1,19 +1,27 @@
 import { useEffect, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import { useAgentStore } from '@/store/useAgentStore';
 
 export function ASTGraph() {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
-  const [repoId, setRepoId] = useState('');
+  const currentOrgSlug = useAgentStore(state => state.currentOrgSlug);
+  const currentRepoId = useAgentStore(state => state.currentRepoId);
+  const [activeRepoDbId, setActiveRepoDbId] = useState('');
 
   useEffect(() => {
-    // Fetch the first available repo in the test organization
-    fetch('http://localhost:8000/orgs/jarod-2134/repos')
+    if (!currentOrgSlug || !currentRepoId) {
+       setGraphData({ nodes: [], links: [] });
+       setActiveRepoDbId('');
+       return;
+    }
+    
+    fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`)
       .then(r => r.json())
       .then(data => {
-        if (data.repositories && data.repositories.length > 0) {
-          const id = data.repositories[0].id;
-          setRepoId(id);
-          return fetch(`http://localhost:8000/orgs/jarod-2134/repos/${id}/graph`);
+        const repo = data.repositories?.find((r: any) => r.fs_path === currentRepoId);
+        if (repo) {
+          setActiveRepoDbId(repo.id);
+          return fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}/graph`);
         }
         return null;
       })
@@ -34,17 +42,19 @@ export function ASTGraph() {
             }))
           };
           setGraphData(formattedData);
+        } else {
+          setGraphData({ nodes: [], links: [] });
         }
       })
       .catch(err => console.error("Failed to load graph data:", err));
-  }, []);
+  }, [currentOrgSlug, currentRepoId]);
 
   return (
     <div className="w-full h-full flex flex-col">
       <div className="p-4 border-b border-border bg-card shrink-0">
         <h2 className="text-lg font-semibold">AST Knowledge Graph</h2>
         <p className="text-sm text-muted-foreground">
-          Topological mapping of the codebase for agents to traverse. {repoId && `Repo: ${repoId}`}
+          Topological mapping of the codebase for agents to traverse. {activeRepoDbId && `Repo ID: ${activeRepoDbId}`}
         </p>
       </div>
       <div className="flex-1 overflow-hidden bg-background">
@@ -59,7 +69,7 @@ export function ASTGraph() {
           />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground">
-            {repoId ? "Loading graph data or no AST data available..." : "No graph data available. Clone a repository first."}
+            {activeRepoDbId ? "Loading graph data or no AST data available..." : "No graph data available. Select a repository first."}
           </div>
         )}
       </div>
