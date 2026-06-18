@@ -1,16 +1,17 @@
 import { useMemo } from 'react';
 import { useAgentStore, type FileNode } from '@/store/useAgentStore';
 import {
+  Clock,
+  Users,
+  ArrowUpRight,
   Activity,
   Bot,
-  CheckCircle2,
-  Clock,
-  Code,
-  Radio,
   AlertCircle,
-  FileText,
-  GitBranch,
   Database,
+  GitBranch,
+  Radio,
+  Code,
+  CheckCircle2,
 } from 'lucide-react';
 
 function flattenFiles(nodes: FileNode[]): FileNode[] {
@@ -40,7 +41,6 @@ export function Analytics() {
   const nodes = useAgentStore((state) => state.nodes);
   const edges = useAgentStore((state) => state.edges);
   const fileTree = useAgentStore((state) => state.fileTree);
-  const isConnected = useAgentStore((state) => state.isConnected);
 
   const cleanLogs = useMemo(() => {
     return logs.filter((log) => !log.message.toLowerCase().includes('websocket disconnected'));
@@ -130,11 +130,6 @@ export function Analytics() {
             <p className="text-muted-foreground mt-1">
               Monitor agent activity, Band handoffs, workspace changes, and session health.
             </p>
-          </div>
-
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            {isConnected ? 'Connected' : 'Disconnected'}
           </div>
         </div>
 

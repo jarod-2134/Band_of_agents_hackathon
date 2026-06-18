@@ -18,7 +18,7 @@ export function Login() {
     }, 1500);
   };
 
-  const snappyTransition = { type: 'spring', stiffness: 400, damping: 25 };
+  const transition = { type: 'spring', stiffness: 300, damping: 20 } as any;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden text-foreground">
@@ -44,7 +44,7 @@ export function Login() {
       <motion.div 
         initial={{ opacity: 0, y: 40, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={snappyTransition}
+        transition={transition}
         className="relative z-10 w-full max-w-md bg-card/80 backdrop-blur-xl border border-border p-8 rounded-3xl shadow-2xl"
       >
         <div className="flex flex-col items-center mb-8">

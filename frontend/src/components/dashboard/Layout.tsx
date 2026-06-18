@@ -2,20 +2,19 @@ import { useEffect } from 'react';
 import { useAgentStore } from '@/store/useAgentStore';
 import { GitBranch, LayoutDashboard, Settings, BarChart3, History, Network, Bot } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
+import { RepoSelector } from './RepoSelector';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
-  const { connectWebSocket, disconnectWebSocket, isConnected } = useAgentStore();
+  const { fetchRepos, disconnectWebSocket } = useAgentStore();
 
   useEffect(() => {
-    // Generate a mock repo ID for demonstration
-    const repoId = "demo-repo-" + Math.floor(Math.random() * 1000);
-    connectWebSocket(repoId);
+    fetchRepos();
     return () => disconnectWebSocket();
-  }, [connectWebSocket, disconnectWebSocket]);
+  }, [fetchRepos, disconnectWebSocket]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
@@ -25,10 +24,7 @@ export function Layout({ children }: LayoutProps) {
           <GitBranch className="w-5 h-5 text-primary" />
           <span>Band AI Control Plane</span>
         </NavLink>
-        <div className="flex items-center gap-2 text-sm">
-          <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-destructive'}`} />
-          <span className="text-muted-foreground font-mono">{isConnected ? 'Connected' : 'Disconnected'}</span>
-        </div>
+        <RepoSelector />
       </header>
 
       {/* Main Layout */}

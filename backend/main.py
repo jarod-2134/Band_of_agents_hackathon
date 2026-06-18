@@ -94,36 +94,36 @@ registry = AgentRegistry()
 
 class ConnectionManager:
     def __init__(self):
-        # Maps org_slug -> list[WebSocket]
+        # Maps repo_id -> list[WebSocket]
         self.active_connections: dict[str, list[WebSocket]] = {}
 
-    async def connect(self, org_slug: str, websocket: WebSocket):
+    async def connect(self, repo_id: str, websocket: WebSocket):
         await websocket.accept()
-        if org_slug not in self.active_connections:
-            self.active_connections[org_slug] = []
-        self.active_connections[org_slug].append(websocket)
+        if repo_id not in self.active_connections:
+            self.active_connections[repo_id] = []
+        self.active_connections[repo_id].append(websocket)
         # Send initial graph on connect
-        await self.send_graph_update(org_slug)
+        await self.send_graph_update(repo_id)
 
-    def disconnect(self, org_slug: str, websocket: WebSocket):
-        if org_slug in self.active_connections:
+    def disconnect(self, repo_id: str, websocket: WebSocket):
+        if repo_id in self.active_connections:
             try:
-                self.active_connections[org_slug].remove(websocket)
+                self.active_connections[repo_id].remove(websocket)
             except ValueError:
                 pass
 
-    async def broadcast(self, org_slug: str, message: str):
-        if org_slug not in self.active_connections:
+    async def broadcast(self, repo_id: str, message: str):
+        if repo_id not in self.active_connections:
             return
-        for connection in self.active_connections[org_slug]:
+        for connection in self.active_connections[repo_id]:
             try:
                 await connection.send_text(message)
             except:
                 pass
 
-    async def send_graph_update(self, org_slug: str):
-        graph_data = registry.get_graph(org_slug)
-        await self.broadcast(org_slug, json.dumps({
+    async def send_graph_update(self, repo_id: str):
+        graph_data = registry.get_graph(repo_id)
+        await self.broadcast(repo_id, json.dumps({
             "type": "graph_update",
             "payload": graph_data
         }))
@@ -131,25 +131,25 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # Hook up the registry to broadcast when the graph changes
-def on_graph_update(org_slug: str):
+def on_graph_update(repo_id: str):
     # We must run the async broadcast in the event loop
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(manager.send_graph_update(org_slug))
+        loop.create_task(manager.send_graph_update(repo_id))
     except RuntimeError:
-        logger.error(f"Error occurred while sending graph update for org {org_slug}.")
+        logger.error(f"Error occurred while sending graph update for repo {repo_id}.")
 
 registry.on_graph_update = on_graph_update
 
-async def handle_agent_log(org_slug: str, agent_id: str, agent_role: str, message: str, log_type: str):
-    await manager.broadcast(org_slug, json.dumps({
+async def handle_agent_log(repo_id: str, agent_id: str, agent_role: str, message: str, log_type: str):
+    await manager.broadcast(repo_id, json.dumps({
         "type": "log",
         "agentRole": agent_role,
         "logType": log_type,
         "payload": message
     }))
     # also highlight active node
-    await manager.broadcast(org_slug, json.dumps({
+    await manager.broadcast(repo_id, json.dumps({
         "type": "active_node",
         "payload": agent_id
     }))
@@ -158,7 +158,7 @@ async def handle_agent_log(org_slug: str, agent_id: str, agent_role: str, messag
 
 @app.websocket("/ws/{org_slug}/{repo_id}")
 async def websocket_endpoint(websocket: WebSocket, org_slug: str, repo_id: str):
-    await manager.connect(org_slug, websocket)
+    await manager.connect(repo_id, websocket)
     
     try:
         while True:
@@ -172,12 +172,12 @@ async def websocket_endpoint(websocket: WebSocket, org_slug: str, repo_id: str):
                     api_keys = payload.get("apiKeys", {})
                     
                     # Initialize the Corporate Structure on demand
-                    ceo = HeadAgent("AI CEO", org_slug=org_slug, instructions=instructions, api_keys=api_keys)
+                    ceo = HeadAgent("AI CEO", org_slug=repo_id, instructions=instructions, api_keys=api_keys)
                     ceo.set_log_callback(handle_agent_log)
-                    registry.register(org_slug, ceo)
+                    registry.register(repo_id, ceo)
                     asyncio.create_task(ceo.run())
                     
-                    await manager.broadcast(org_slug, json.dumps({
+                    await manager.broadcast(repo_id, json.dumps({
                         "type": "log",
                         "payload": f"Corporate simulation started with instructions: {instructions}",
                         "logType": "info"
@@ -189,9 +189,9 @@ async def websocket_endpoint(websocket: WebSocket, org_slug: str, repo_id: str):
                 pass
             
     except WebSocketDisconnect:
-        manager.disconnect(org_slug, websocket)
-        # Clean up registry for this org
-        registry.clear_org(org_slug)
+        manager.disconnect(repo_id, websocket)
+        # Clean up registry for this repo
+        registry.clear_org(repo_id)
 
 def build_file_tree(dir_path: str, rel_path: str = ""):
     tree = []
@@ -222,6 +222,28 @@ def build_file_tree(dir_path: str, rel_path: str = ""):
         
     return tree
 
+def build_file_tree_from_git(repo_path: str, tree, rel_path: str = ""):
+    import pygit2
+    result = []
+    repo = pygit2.Repository(repo_path)
+    for entry in tree:
+        is_dir = entry.type == pygit2.GIT_OBJECT_TREE
+        full_path = os.path.join(rel_path, entry.name).replace("\\", "/")
+        node = {
+            "name": entry.name,
+            "isDir": is_dir,
+            "path": full_path,
+            "status": "unmodified"
+        }
+        if is_dir:
+            try:
+                sub_tree = repo.get(entry.id)
+                node["children"] = build_file_tree_from_git(repo_path, sub_tree, full_path)
+            except Exception:
+                node["children"] = []
+        result.append(node)
+    return result
+
 @app.get("/api/repos/{repo_id}/files")
 async def get_repo_files(repo_id: str):
     repo_path = os.path.join(REPOS_DIR, repo_id)
@@ -231,12 +253,43 @@ async def get_repo_files(repo_id: str):
         with open(os.path.join(repo_path, "README.md"), "w") as f:
             f.write(f"# Repository: {repo_id}\n\nInitialize your codebase here.")
             
-    tree = build_file_tree(repo_path)
-    return {"files": tree}
+    try:
+        import pygit2
+        repo = pygit2.Repository(repo_path)
+        if repo.is_empty:
+            return {"files": []}
+        head = repo.head
+        commit = repo.get(head.target)
+        file_tree = build_file_tree_from_git(repo_path, commit.tree)
+        return {"files": file_tree}
+    except Exception as e:
+        logger.error(f"Failed to read git tree: {e}")
+        tree = build_file_tree(repo_path)
+        return {"files": tree}
 
 @app.get("/api/repos/{repo_id}/file/{filepath:path}")
 async def get_repo_file(repo_id: str, filepath: str):
     repo_path = os.path.join(REPOS_DIR, repo_id)
+    
+    try:
+        import pygit2
+        repo = pygit2.Repository(repo_path)
+        if not repo.is_empty:
+            head = repo.head
+            commit = repo.get(head.target)
+            current = commit.tree
+            parts = filepath.replace("\\", "/").strip("/").split("/")
+            for part in parts:
+                if not part: continue
+                if type(current) is not pygit2.Tree:
+                    raise KeyError
+                entry = current[part]
+                current = repo.get(entry.id)
+            if type(current) is pygit2.Blob:
+                return {"content": current.data.decode("utf-8")}
+    except Exception:
+        pass
+        
     target_path = os.path.abspath(os.path.join(repo_path, filepath))
     
     if not target_path.startswith(os.path.abspath(repo_path)):

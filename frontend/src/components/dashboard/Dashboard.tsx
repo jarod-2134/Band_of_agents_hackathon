@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAgentStore, type FileNode } from '@/store/useAgentStore';
 import { GraphViewer } from './GraphViewer';
 import { DiffViewer } from './DiffViewer';
 import { LogTerminal } from './LogTerminal';
-import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3, Plus, Trash2 } from 'lucide-react';
-import { CloneRepoModal } from './CloneRepoModal';
+import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3 } from 'lucide-react';
 
 const mockDiffs: Record<string, { original: string; modified: string }> = {
   'frontend/src/Login.tsx': {
@@ -136,29 +135,18 @@ A multi-agent software delivery workspace where PM, Developer, Reviewer, and QA 
 
 export function Dashboard() {
   const fileTree = useAgentStore((state) => state.fileTree);
-  const connectWebSocket = useAgentStore((state) => state.connectWebSocket);
-  const currentOrgSlug = useAgentStore((state) => state.currentOrgSlug);
   const currentRepoId = useAgentStore((state) => state.currentRepoId);
-  const [repos, setRepos] = useState<{ id: string; name: string; fs_path: string }[]>([]);
-  const [showCloneModal, setShowCloneModal] = useState(false);
-
-  useEffect(() => {
-    fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.repositories) {
-          setRepos(data.repositories);
-        }
-      })
-      .catch(err => console.error("Failed to load repos", err));
-  }, [currentOrgSlug]);
-  const [activeTab, setActiveTab] = useState<'graph' | 'diff'>('graph');
+  const activeTab = useAgentStore((state) => state.activeTab);
+  const setActiveTab = useAgentStore((state) => state.setActiveTab);
+  const currentDiff = useAgentStore((state) => state.currentDiff);
+  const setCurrentDiff = useAgentStore((state) => state.setCurrentDiff);
   const [terminalOpen, setTerminalOpen] = useState(true);
-  const [selectedDiff, setSelectedDiff] = useState({
+
+  const diffToDisplay = currentDiff || {
     filePath: 'frontend/src/Login.tsx',
     original: mockDiffs['frontend/src/Login.tsx'].original,
     modified: mockDiffs['frontend/src/Login.tsx'].modified,
-  });
+  };
 
   const renderTree = (nodes: FileNode[], depth = 0) => {
     return nodes?.map((node) => (
@@ -171,16 +159,41 @@ export function Dashboard() {
             if (!node.isDir) {
               setActiveTab('diff');
 
-              const diff = mockDiffs[node.path] ?? {
-                original: `// No previous version available for ${node.name}`,
-                modified: `// ${node.name}\n// No agent modifications have been recorded for this file yet.`,
-              };
+              const diff = mockDiffs[node.path];
 
-              setSelectedDiff({
-                filePath: node.path,
-                original: diff.original,
-                modified: diff.modified,
-              });
+              if (diff) {
+                setCurrentDiff({
+                  filePath: node.path,
+                  original: diff.original,
+                  modified: diff.modified,
+                });
+              } else {
+                setCurrentDiff({
+                  filePath: node.path,
+                  original: `// Loading original version...`,
+                  modified: `// Loading ${node.name}...`,
+                });
+
+                fetch(`http://localhost:8000/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}`)
+                  .then((res) => {
+                    if (!res.ok) throw new Error('Network response was not ok');
+                    return res.json();
+                  })
+                  .then((data) => {
+                    setCurrentDiff({
+                      filePath: node.path,
+                      original: `// No previous version available for ${node.name}`,
+                      modified: data.content ?? `// No agent modifications have been recorded for this file yet.`,
+                    });
+                  })
+                  .catch((err) => {
+                    setCurrentDiff({
+                      filePath: node.path,
+                      original: `// No previous version available for ${node.name}`,
+                      modified: `// Failed to load file: ${err.message}`,
+                    });
+                  });
+              }
             }
           }}
         >
@@ -213,57 +226,13 @@ export function Dashboard() {
   return (
     <div className="flex-1 flex overflow-hidden">
       <div className="w-64 border-r border-border bg-card flex flex-col">
-        <div className="px-4 py-2 border-b border-border font-bold text-xs tracking-widest text-muted-foreground flex justify-between items-center">
+        <div className="px-4 py-2 border-b border-border font-bold text-xs tracking-widest text-muted-foreground">
           WORKSPACE
-          <button 
-            onClick={() => setShowCloneModal(true)} 
-            className="hover:text-primary transition-colors p-1 -mr-1"
-            title="Clone Repository"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
         </div>
 
         <div className="px-4 py-3 border-b border-border">
-          <div className="flex items-center justify-between mb-1">
-            <div className="text-sm font-semibold text-foreground">Repository</div>
-            {currentRepoId && (
-              <button 
-                onClick={() => {
-                  const repo = repos.find(r => r.fs_path === currentRepoId);
-                  if (repo && window.confirm(`Are you sure you want to delete ${repo.name}?`)) {
-                    fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}`, { method: 'DELETE' })
-                      .then(() => {
-                        connectWebSocket('');
-                        return fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`);
-                      })
-                      .then(res => res.json())
-                      .then(data => data.repositories ? setRepos(data.repositories) : setRepos([]))
-                      .catch(err => console.error("Failed to delete repo", err));
-                  }
-                }}
-                className="text-muted-foreground hover:text-destructive transition-colors"
-                title="Delete Repository"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-          <select 
-            className="w-full text-sm bg-background border border-border rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/50"
-            value={currentRepoId || ""}
-            onChange={(e) => {
-              if (e.target.value) {
-                connectWebSocket(e.target.value);
-              }
-            }}
-          >
-            <option value="" disabled>Select a repository...</option>
-            {repos.map(r => (
-              <option key={r.id} value={r.fs_path}>{r.name}</option>
-            ))}
-          </select>
-          <div className="text-xs text-muted-foreground mt-2">Project files modified by agents</div>
+          <div className="text-sm font-semibold text-foreground">Project Files</div>
+          <div className="text-xs text-muted-foreground mt-1">Files modified by agents</div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
@@ -307,26 +276,13 @@ export function Dashboard() {
         </div>
 
         <div className="flex-1 min-h-0">
-          {activeTab === 'graph' ? <GraphViewer /> : <DiffViewer diff={selectedDiff} />}
+          {activeTab === 'graph' ? <GraphViewer /> : <DiffViewer diff={diffToDisplay} />}
         </div>
 
         <div className={terminalOpen ? 'h-56 shrink-0' : 'h-11 shrink-0'}>
           <LogTerminal isOpen={terminalOpen} onToggle={() => setTerminalOpen(!terminalOpen)} />
         </div>
       </div>
-
-      <CloneRepoModal 
-        isOpen={showCloneModal}
-        onClose={() => setShowCloneModal(false)}
-        onSuccess={(repoPath) => {
-          connectWebSocket(repoPath);
-          fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`)
-            .then(res => res.json())
-            .then(data => {
-              if (data.repositories) setRepos(data.repositories);
-            });
-        }}
-      />
     </div>
   );
 }

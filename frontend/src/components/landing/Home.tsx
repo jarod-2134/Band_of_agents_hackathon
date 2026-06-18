@@ -1,6 +1,6 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { GitBranch, Zap, Layers, Code2, Bot, ArrowRight } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { GitBranch, Layers, Code2, Bot, ArrowRight } from 'lucide-react';
 import { useRef } from 'react';
 
 export function Home() {
@@ -16,7 +16,7 @@ export function Home() {
   const y = useTransform(scrollYProgress, [0, 0.5], [0, 100]);
 
   // Snappy transition settings
-  const snappyTransition = { type: 'spring', stiffness: 300, damping: 20 };
+  const snappyTransition: any = { type: 'spring', stiffness: 300, damping: 20 };
 
   return (
     <div className="bg-background min-h-screen text-foreground overflow-x-hidden selection:bg-primary/20">
@@ -28,21 +28,24 @@ export function Home() {
           <span>Band AI</span>
         </div>
         <div className="flex gap-4">
-          <button 
-            onClick={() => navigate('/login')}
+          <Link 
+            to="/login"
             className="text-sm font-medium hover:text-primary transition-colors px-4 py-2"
           >
             Sign In
-          </button>
-          <motion.button 
+          </Link>
+          <motion.div 
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             transition={snappyTransition}
-            onClick={() => navigate('/login')}
-            className="text-sm font-semibold bg-primary text-primary-foreground px-5 py-2 rounded-full hover:bg-primary/90 transition-colors shadow-sm"
           >
-            Get Started
-          </motion.button>
+            <Link 
+              to="/login"
+              className="inline-block text-sm font-semibold bg-primary text-primary-foreground px-5 py-2 rounded-full hover:bg-primary/90 transition-colors shadow-sm"
+            >
+              Get Started
+            </Link>
+          </motion.div>
         </div>
       </nav>
 
@@ -110,16 +113,19 @@ export function Home() {
             transition={{ ...snappyTransition, delay: 0.4 }}
             className="mt-10 flex gap-4"
           >
-            <motion.button 
+            <motion.div 
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               transition={snappyTransition}
-              onClick={() => navigate('/login')}
-              className="group flex items-center gap-2 bg-primary text-primary-foreground px-8 py-4 rounded-full text-lg font-medium hover:bg-primary/90 transition-all shadow-lg"
             >
-              Start Free Trial
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </motion.button>
+              <Link 
+                to="/login"
+                className="group flex items-center gap-2 bg-primary text-primary-foreground px-8 py-4 rounded-full text-lg font-medium hover:bg-primary/90 transition-all shadow-lg"
+              >
+                Start Free Trial
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </motion.div>
           </motion.div>
         </motion.div>
 

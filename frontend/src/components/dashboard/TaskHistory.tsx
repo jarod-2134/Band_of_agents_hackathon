@@ -42,7 +42,6 @@ export function TaskHistory() {
   const logs = useAgentStore((state) => state.logs);
   const nodes = useAgentStore((state) => state.nodes);
   const fileTree = useAgentStore((state) => state.fileTree);
-  const isConnected = useAgentStore((state) => state.isConnected);
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<HistoryFilter>('all');
@@ -93,11 +92,6 @@ export function TaskHistory() {
             <p className="text-muted-foreground mt-1">
               Review agent activity, handoffs, and workflow events recorded in this workspace session.
             </p>
-          </div>
-
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            {isConnected ? 'Connected' : 'Disconnected'}
           </div>
         </div>
 
