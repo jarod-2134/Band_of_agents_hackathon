@@ -32,6 +32,9 @@ export function AgentManager() {
 
   useEffect(() => {
     fetchAgents();
+    // Poll every 5s to pick up status changes (busy → idle) from the backend
+    const interval = setInterval(fetchAgents, 5000);
+    return () => clearInterval(interval);
   }, [currentOrgSlug]);
 
   const handleCreateAgent = async (e: React.FormEvent) => {

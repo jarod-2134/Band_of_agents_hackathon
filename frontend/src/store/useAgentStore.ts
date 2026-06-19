@@ -455,12 +455,18 @@ export const useAgentStore = create<AgentState>()(
       },
 
       connectWebSocket: (repoId: string) => {
-        const { currentOrgSlug } = get();
+        const { currentOrgSlug, currentRepoId } = get();
+        const isSameRepo = currentRepoId === repoId;
         set({ currentRepoId: repoId, isConnected: false });
 
-        get().fetchBranches(repoId).then(() => {
-          get().fetchFileTree(repoId);
-        });
+        // Only re-fetch branches and file tree when switching to a different repo.
+        // Skip on reconnects to the same repo to prevent the polling loop from
+        // hammering the backend with GET /branches and GET /files every 3 seconds.
+        if (!isSameRepo) {
+          get().fetchBranches(repoId).then(() => {
+            get().fetchFileTree(repoId);
+          });
+        }
 
         // Cancel any pending reconnect and start a fresh connection
         if (wsReconnectTimer) {

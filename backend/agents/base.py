@@ -1,4 +1,5 @@
 import asyncio
+from sqlalchemy import text as sql_text
 import os
 from typing import Callable, Optional, List
 import litellm
@@ -207,7 +208,27 @@ class BaseAgent:
                 msg = await asyncio.wait_for(self.inbox.get(), timeout=3.0)
                 await self.process_message(msg)
                 self.inbox.task_done()
+                # Task completed — reset DB status to idle so the UI badge updates
+                try:
+                    async with AsyncSessionLocal() as session:
+                        await session.execute(
+                            sql_text("UPDATE agents SET operational_status = 'idle' WHERE org_slug = :org AND name = :name"),
+                            {"org": self.org_slug, "name": self.name}
+                        )
+                        await session.commit()
+                except Exception as db_err:
+                    logger.warning(f"Could not reset agent status after task: {db_err}")
             except asyncio.TimeoutError:
                 pass
             except Exception as e:
                 logger.error(f"Inbox loop exception: {e}")
+                # Even on error, try to reset to idle so the card doesn't stay stuck
+                try:
+                    async with AsyncSessionLocal() as session:
+                        await session.execute(
+                            sql_text("UPDATE agents SET operational_status = 'idle' WHERE org_slug = :org AND name = :name"),
+                            {"org": self.org_slug, "name": self.name}
+                        )
+                        await session.commit()
+                except Exception:
+                    pass
