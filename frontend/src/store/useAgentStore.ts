@@ -502,12 +502,15 @@ export const useAgentStore = create<AgentState>()(
         };
 
         ws.onclose = () => {
+          const wasConnected = get().isConnected;
           set({ isConnected: false });
           // Only attempt auto-reconnect if this wasn't an intentional close
           // (e.g. logout, repo switch). This lets the UI survive a backend
           // restart/boot delay without the user having to refresh the page.
           if (!wsIntentionalClose) {
-            get().addLog({ message: "Control plane disconnected — retrying in 3s...", type: 'error' });
+            if (wasConnected) {
+              get().addLog({ message: "Control plane disconnected — retrying in 3s...", type: 'error' });
+            }
             if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
             wsReconnectTimer = setTimeout(() => {
               const rid = get().currentRepoId;

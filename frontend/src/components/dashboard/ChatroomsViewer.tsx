@@ -166,7 +166,7 @@ export function ChatroomsViewer() {
   });
 
   return (
-    <div className="flex-1 flex overflow-hidden h-[calc(100vh-64px)] bg-background">
+    <div className="flex-1 flex overflow-hidden h-full bg-background">
       {/* 1. Left Sidebar - Chatrooms List */}
       <div className="w-80 border-r border-border bg-card flex flex-col shrink-0">
         <div className="p-4 border-b border-border flex justify-between items-center bg-secondary/30">

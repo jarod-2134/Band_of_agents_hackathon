@@ -5,6 +5,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.security import ALGORITHM, JWT_SECRET
 
 class LifecycleSecurityMiddleware(BaseHTTPMiddleware):
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
     async def dispatch(self, request: Request, call_next):
 
         exempt_paths = [
