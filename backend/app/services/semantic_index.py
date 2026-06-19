@@ -15,11 +15,11 @@ class SemanticIndexingService:
         self.model = None
         self.parsers = {}
         try:
-            self.parsers['python'] = Parser(Language(tree_sitter_python.language()))
-            self.parsers['javascript'] = Parser(Language(tree_sitter_javascript.language()))
-            self.parsers['go'] = Parser(Language(tree_sitter_go.language()))
-            self.parsers['typescript'] = Parser(Language(tree_sitter_typescript.language_typescript()))
-            self.parsers['tsx'] = Parser(Language(tree_sitter_typescript.language_tsx()))
+            self.parsers['python'] = Parser(Language(tree_sitter_python.language(), 'python'))
+            self.parsers['javascript'] = Parser(Language(tree_sitter_javascript.language(), 'javascript'))
+            self.parsers['go'] = Parser(Language(tree_sitter_go.language(), 'go'))
+            self.parsers['typescript'] = Parser(Language(tree_sitter_typescript.language_typescript(), 'typescript'))
+            self.parsers['tsx'] = Parser(Language(tree_sitter_typescript.language_tsx(), 'tsx'))
         except Exception as e:
             logger.error(f"Failed to load tree-sitter languages: {e}")
     

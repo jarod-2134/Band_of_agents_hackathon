@@ -160,41 +160,31 @@ export function Dashboard() {
             if (!node.isDir) {
               setActiveTab('diff');
 
-              const diff = mockDiffs[node.path];
+              setCurrentDiff({
+                filePath: node.path,
+                original: `// Loading original version...`,
+                modified: `// Loading ${node.name}...`,
+              });
 
-              if (diff) {
-                setCurrentDiff({
-                  filePath: node.path,
-                  original: diff.original,
-                  modified: diff.modified,
-                });
-              } else {
-                setCurrentDiff({
-                  filePath: node.path,
-                  original: `// Loading original version...`,
-                  modified: `// Loading ${node.name}...`,
-                });
-
-                fetch(`http://localhost:8000/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}?branch=${currentBranch}`)
-                  .then((res) => {
-                    if (!res.ok) throw new Error('Network response was not ok');
-                    return res.json();
-                  })
-                  .then((data) => {
-                    setCurrentDiff({
-                      filePath: node.path,
-                      original: `// No previous version available for ${node.name}`,
-                      modified: data.content ?? `// No agent modifications have been recorded for this file yet.`,
-                    });
-                  })
-                  .catch((err) => {
-                    setCurrentDiff({
-                      filePath: node.path,
-                      original: `// No previous version available for ${node.name}`,
-                      modified: `// Failed to load file: ${err.message}`,
-                    });
+              fetch(`http://localhost:8000/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}?branch=${currentBranch}`)
+                .then((res) => {
+                  if (!res.ok) throw new Error('Network response was not ok');
+                  return res.json();
+                })
+                .then((data) => {
+                  setCurrentDiff({
+                    filePath: node.path,
+                    original: data.content ?? '',
+                    modified: data.content ?? `// No agent modifications have been recorded for this file yet.`,
                   });
-              }
+                })
+                .catch((err) => {
+                  setCurrentDiff({
+                    filePath: node.path,
+                    original: `// No previous version available for ${node.name}`,
+                    modified: `// Failed to load file: ${err.message}`,
+                  });
+                });
             }
           }}
         >

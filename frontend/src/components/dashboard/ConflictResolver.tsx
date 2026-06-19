@@ -1,6 +1,44 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAgentStore } from '@/store/useAgentStore';
 import { FileWarning, ChevronRight, Check, X, ArrowDown } from 'lucide-react';
+import { DiffEditor } from '@monaco-editor/react';
+
+// Simple parser to extract the "ours" and "theirs" versions from conflict markers
+const parseConflict = (content: string) => {
+  let ours = '';
+  let theirs = '';
+  let state = 'normal';
+  const lines = content.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('<<<<<<<')) {
+      state = 'ours';
+      continue;
+    }
+    if (line.startsWith('=======')) {
+      state = 'theirs';
+      continue;
+    }
+    if (line.startsWith('>>>>>>>')) {
+      state = 'normal';
+      continue;
+    }
+    
+    if (state === 'normal') {
+      ours += line + '\n';
+      theirs += line + '\n';
+    } else if (state === 'ours') {
+      ours += line + '\n';
+    } else if (state === 'theirs') {
+      theirs += line + '\n';
+    }
+  }
+  
+  return {
+    ours: ours.endsWith('\n') ? ours.slice(0, -1) : ours,
+    theirs: theirs.endsWith('\n') ? theirs.slice(0, -1) : theirs
+  };
+};
 
 export function ConflictResolver() {
   const conflictFiles = useAgentStore(state => state.conflictFiles);
@@ -15,7 +53,9 @@ export function ConflictResolver() {
   const [markedResolved, setMarkedResolved] = useState<Set<string>>(new Set());
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
+  const decorationsRef = useRef<string[]>([]);
 
   useEffect(() => {
     if (conflictFiles.length > 0) {
@@ -24,23 +64,49 @@ export function ConflictResolver() {
       const initialContent: Record<string, string> = {};
       conflictFiles.forEach(f => {
         if (resolvedContent[f.path] === undefined) {
-          initialContent[f.path] = f.content;
+          initialContent[f.path] = parseConflict(f.content).theirs;
         }
       });
       setResolvedContent(prev => ({...prev, ...initialContent}));
     }
   }, [conflictFiles]);
 
-  if (!conflictFiles || conflictFiles.length === 0) return null;
-
   const activeFile = conflictFiles.find(f => f.path === activeFilePath);
   const currentContent = activeFilePath ? resolvedContent[activeFilePath] || '' : '';
 
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const updateDecorations = () => {
+    if (!editorRef.current || !monacoRef.current) return;
+    const model = editorRef.current.getModel();
+    if (!model) return;
+
+    const matches = model.findMatches('<<<<<<<[\\s\\S]*?=======[\\s\\S]*?>>>>>>>.*', false, true, false, null, true);
+    
+    const newDecorations = matches.map((match: any) => ({
+      range: match.range,
+      options: {
+        isWholeLine: true,
+        className: 'bg-destructive/20 border-l-4 border-destructive',
+        overviewRuler: {
+          color: 'rgba(239, 68, 68, 0.8)',
+          position: monacoRef.current.editor.OverviewRulerLane.Right
+        }
+      }
+    }));
+
+    decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, newDecorations);
+  };
+
+  useEffect(() => {
+    updateDecorations();
+  }, [currentContent]);
+
+  if (!conflictFiles || conflictFiles.length === 0) return null;
+
+  const handleContentChange = (value: string) => {
     if (activeFilePath) {
       setResolvedContent(prev => ({
         ...prev,
-        [activeFilePath]: e.target.value
+        [activeFilePath]: value
       }));
       // If user edits, unmark as resolved automatically so they don't accidentally submit unresolved stuff
       if (markedResolved.has(activeFilePath)) {
@@ -52,28 +118,21 @@ export function ConflictResolver() {
   };
 
   const jumpToNextConflict = () => {
-    if (!textareaRef.current || !activeFilePath) return;
-    const text = resolvedContent[activeFilePath] || '';
-    const marker = '<<<<<<<';
-    
-    // Find next marker from current cursor position
-    const currentCursor = textareaRef.current.selectionStart || 0;
-    let nextIndex = text.indexOf(marker, currentCursor + 1);
-    
-    // If not found after cursor, loop around from beginning
-    if (nextIndex === -1) {
-      nextIndex = text.indexOf(marker, 0);
-    }
+    if (!editorRef.current || !monacoRef.current) return;
+    const model = editorRef.current.getModel();
+    if (!model) return;
 
-    if (nextIndex !== -1) {
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(nextIndex, nextIndex + marker.length);
+    const position = editorRef.current.getPosition();
+    const matches = model.findMatches('<<<<<<<', false, false, false, null, false);
+    
+    if (matches.length > 0) {
+      // Find the first match that is after the current cursor
+      let nextMatch = matches.find((m: any) => m.range.startLineNumber > position.lineNumber);
+      if (!nextMatch) nextMatch = matches[0]; // Wrap around
       
-      // Basic scroll attempt
-      const linesBefore = text.substring(0, nextIndex).split('\n').length;
-      const totalLines = text.split('\n').length;
-      const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.scrollTop = (linesBefore / totalLines) * scrollHeight - 100;
+      editorRef.current.revealLineInCenter(nextMatch.range.startLineNumber);
+      editorRef.current.setPosition({ lineNumber: nextMatch.range.startLineNumber, column: 1 });
+      editorRef.current.focus();
     }
   };
 
@@ -211,20 +270,33 @@ export function ConflictResolver() {
                 </div>
                 
                 <div className="flex-1 p-4 relative">
-                  <textarea
-                    ref={textareaRef}
-                    value={currentContent}
-                    onChange={handleContentChange}
-                    className="w-full h-full resize-none font-mono text-sm leading-relaxed p-4 bg-secondary/5 border border-border rounded-lg outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-                    spellCheck={false}
-                    placeholder="File content..."
+                  <DiffEditor
+                    height="100%"
+                    theme="vs-dark"
+                    original={activeFile ? parseConflict(activeFile.content).ours : ''}
+                    modified={currentContent}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 13,
+                      wordWrap: 'on',
+                      scrollBeyondLastLine: false,
+                      renderSideBySide: true,
+                      readOnly: false,
+                      originalEditable: true,
+                      ignoreTrimWhitespace: false
+                    }}
+                    onMount={(editor, monaco) => {
+                      const modifiedEditor = editor.getModifiedEditor();
+                      editorRef.current = modifiedEditor;
+                      monacoRef.current = monaco;
+                      
+                      modifiedEditor.onDidChangeModelContent(() => {
+                        handleContentChange(modifiedEditor.getValue());
+                      });
+                      
+                      updateDecorations();
+                    }}
                   />
-                  {currentContent.includes('<<<<<<<') && (
-                    <div className="absolute top-6 right-8 pointer-events-none text-xs font-medium text-destructive bg-destructive/10 px-2 py-1 rounded border border-destructive/20 flex items-center gap-1.5">
-                      <FileWarning className="w-3 h-3" />
-                      Contains unresolved markers
-                    </div>
-                  )}
                 </div>
               </>
             ) : (

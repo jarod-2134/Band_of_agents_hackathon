@@ -304,7 +304,9 @@ async def get_repo_file(repo_id: str, filepath: str, branch: str = "main"):
                 current = repo.get(entry.id)
             if type(current) is pygit2.Blob:
                 return {"content": current.data.decode("utf-8")}
-    except Exception:
+    except Exception as e:
+        import traceback
+        logger.error(f"Failed to fetch file from git: {e}\n{traceback.format_exc()}")
         pass
         
     target_path = os.path.abspath(os.path.join(repo_path, filepath))
