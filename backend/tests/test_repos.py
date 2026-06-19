@@ -72,27 +72,20 @@ class SmartTestEngine:
         self.result = SmartTestResult(rows=rows, rowcount=rowcount, scalar_value=scalar_value)
 
     def __call__(self, statement, *args, **kwargs):
-        query_str = str(statement).strip().upper()
-        
-        # Identifies endpoints that use "await db.execute(...)"
-        # matching: list_repositories ("SELECT id, name...") and create_repository ("INSERT INTO...")
-        if query_str.startswith("SELECT ID, NAME, ORG_SLUG") or query_str.startswith("INSERT INTO"):
-            async def async_fallback():
-                return self.result
-            return async_fallback()
-            
-        # Default fallback for standard sync execution logic (get, patch, delete routes)
-        return self.result
+        async def async_fallback():
+            return self.result
+        return async_fallback()
 
 
 def setup_hybrid_db(db, rows=None, rowcount=1, scalar_value=None):
     """
     Safely binds the high-performance multi-mode mock framework to your test session database.
     """
+    from unittest.mock import AsyncMock
     db.execute = MagicMock(side_effect=SmartTestEngine(rows=rows, rowcount=rowcount, scalar_value=scalar_value))
-    db.commit = MagicMock()
-    db.flush = MagicMock()
-    db.rollback = MagicMock()
+    db.commit = AsyncMock()
+    db.flush = AsyncMock()
+    db.rollback = AsyncMock()
     return db.execute
 
 
@@ -131,6 +124,7 @@ class TestCreateRepo:
         setup_hybrid_db(db, rows=[new_row], scalar_value=REPO_ID)
 
         with patch("pygit2.init_repository") as mock_git_init, \
+             patch("pygit2.Index") as mock_index, \
              patch("os.path.exists", return_value=False):
             response = await client.post(BASE, json={"name": "new-repo"})
             assert response.status_code == 201

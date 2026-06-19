@@ -196,8 +196,33 @@ class PlannerAgent(BaseAgent):
     async def process_message(self, message: dict):
         msg = message.get("message")
         if msg == "start" or (isinstance(msg, dict) and msg.get("cmd") == "start"):
-            instructions = msg.get("instructions", "No initial instructions.")
-            
+            instructions = "No initial instructions."
+            if isinstance(msg, dict):
+                instructions = msg.get("instructions", "No initial instructions.")
+            else:
+                instructions = message.get("instructions", "No initial instructions.")
+
+            title = "Task for Planner Agent"
+            description = instructions
+
+            issue_id = message.get("issue_id")
+            if issue_id:
+                from database import AsyncSessionLocal
+                from sqlalchemy import text
+                try:
+                    async with AsyncSessionLocal() as session:
+                        result = await session.execute(
+                            text("SELECT title, description FROM issues WHERE id = CAST(:id AS uuid)"),
+                            {"id": str(issue_id)}
+                        )
+                        row = result.mappings().first()
+                        if row:
+                            title = row["title"]
+                            description = row["description"]
+                            instructions = f"Issue: {title}\n{description}"
+                except Exception as e:
+                    await self.log(f"Failed to query issue description from database: {e}", "error")
+
             # Create a Band Chatroom if we are connected to Band
             room_id = None
             if self.band_agent and self.band_agent.runtime.link and self.band_agent.runtime.link.rest:
@@ -217,6 +242,29 @@ class PlannerAgent(BaseAgent):
                 room_id = f"band-mock-{uuid.uuid4().hex[:8]}"
 
             self.band_room_id = room_id
+
+            # Insert a record into the 'tasks' table so it appears in Chatrooms list
+            from database import AsyncSessionLocal
+            from sqlalchemy import text
+            async with AsyncSessionLocal() as session:
+                try:
+                    await session.execute(
+                        text("""
+                            INSERT INTO tasks (repo_id, title, description, status, assignee_id, band_room_id)
+                            VALUES (:repo_id, :title, :description, 'IN_PROGRESS', :assignee_id, :band_room_id)
+                        """),
+                        {
+                            "repo_id": self.org_slug,
+                            "title": title,
+                            "description": description,
+                            "assignee_id": self.id,
+                            "band_room_id": room_id
+                        }
+                    )
+                    await session.commit()
+                except Exception as e:
+                    await self.log(f"Failed to record task in database: {e}", "error")
+
             await self.log(f"Planner starting up. Objectives: {instructions}", AgentAction.SPIN_UP_AGENT)
             # To actually trigger the agent to think natively via Band, someone needs to send it a message 
             # via the Band Network. If we want it to react internally, we might need a custom bridge 

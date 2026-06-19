@@ -210,6 +210,17 @@ async def assign_issue_task(org_slug: str, agent_id: int, payload: TaskAssignPay
     from main import registry
 
     """Delegates tasks to agents using issue_id references over the BAND mesh."""
+
+    # 0. Verify the Agent exists in the database
+    agent_proxy = await db.execute(
+        text("SELECT id FROM agents WHERE id = :id AND org_slug = :org_slug"),
+        {"id": agent_id, "org_slug": org_slug}
+    )
+    if not agent_proxy.mappings().first():
+        raise HTTPException(
+            status_code=404, 
+            detail="Agent profile not found in database."
+        )
     
     # 1. Verify the Agent is running in memory
     live_agent = registry.get_agent(org_slug, str(agent_id))

@@ -5,17 +5,27 @@ import { NavLink } from 'react-router-dom';
 import { RepoSelector } from './RepoSelector';
 import { ConflictResolver } from './ConflictResolver';
 
+import { useNavigate } from 'react-router-dom';
+
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
-  const { fetchRepos, disconnectWebSocket, conflictFiles } = useAgentStore();
+  const navigate = useNavigate();
+  const { fetchRepos, disconnectWebSocket, conflictFiles, token, currentOrgSlug, setOrgSlug } = useAgentStore();
 
   useEffect(() => {
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+    if (currentOrgSlug !== 'default') {
+      setOrgSlug('default');
+    }
     fetchRepos();
     return () => disconnectWebSocket();
-  }, [fetchRepos, disconnectWebSocket]);
+  }, [fetchRepos, disconnectWebSocket, token, navigate, currentOrgSlug, setOrgSlug]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">

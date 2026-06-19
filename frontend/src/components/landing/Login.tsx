@@ -2,20 +2,43 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { GitBranch, Loader2, Mail, Lock } from 'lucide-react';
+import { useAgentStore, API_URL } from '@/store/useAgentStore';
 
 export function Login() {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+  const [email, setEmail] = useState('admin@admin.com');
+  const [password, setPassword] = useState('password123');
+  const [error, setError] = useState<string | null>(null);
+  const setToken = useAgentStore((state) => state.setToken);
+  const setOrgSlug = useAgentStore((state) => state.setOrgSlug);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    // Mock authentication delay
-    setTimeout(() => {
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setToken(data.access_token);
+        // Force organization slug to 'default' so that the dashboard loads the default workspace repositories
+        setOrgSlug('default');
+        navigate('/dashboard');
+      } else {
+        const data = await res.json();
+        setError(data.detail || 'Authentication failed. Please check your credentials.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError('Connection to backend failed. Make sure the backend server is running.');
+    } finally {
       setIsLoading(false);
-      navigate('/dashboard');
-    }, 1500);
+    }
   };
 
   const transition = { type: 'spring', stiffness: 300, damping: 20 } as any;
@@ -55,6 +78,12 @@ export function Login() {
           <p className="text-muted-foreground text-sm mt-1">Sign in to control your agent swarm</p>
         </div>
 
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 text-red-500 border border-red-500/20 text-sm font-medium rounded-xl text-center">
+            {error}
+          </div>
+        )}
+
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-1">
             <label className="text-sm font-medium text-foreground ml-1">Email Address</label>
@@ -63,7 +92,8 @@ export function Login() {
               <input 
                 type="email" 
                 required
-                defaultValue="admin@band.ai"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
                 className="w-full bg-background border border-border text-foreground rounded-xl pl-10 pr-4 py-3 focus:ring-2 focus:ring-ring focus:border-ring outline-none transition-all placeholder:text-muted-foreground"
                 placeholder="you@company.com"
               />
@@ -77,7 +107,8 @@ export function Login() {
               <input 
                 type="password" 
                 required
-                defaultValue="password123"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
                 className="w-full bg-background border border-border text-foreground rounded-xl pl-10 pr-4 py-3 focus:ring-2 focus:ring-ring focus:border-ring outline-none transition-all placeholder:text-muted-foreground"
                 placeholder="••••••••"
               />

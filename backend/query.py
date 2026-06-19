@@ -7,8 +7,10 @@ from sqlalchemy import text
 
 async def query():
     async with AsyncSessionLocal() as session:
-        res = await session.execute(text('SELECT id, name, fs_path FROM repos'))
-        print(res.mappings().all())
+        res1 = await session.execute(text('SELECT * FROM orgs'))
+        print("Orgs:", res1.mappings().all())
+        res2 = await session.execute(text('SELECT * FROM org_members'))
+        print("Members:", res2.mappings().all())
 
 if __name__ == "__main__":
     asyncio.run(query())

@@ -140,6 +140,8 @@ interface AgentState {
   setApiKey: (provider: string, key: string) => void;
   setTheme: (theme: string) => void;
   setOrgSlug: (slug: string) => void;
+  token: string | null;
+  setToken: (token: string | null) => void;
 
   demoMode: boolean;
   demoSnapshot: DemoSnapshot | null;
@@ -155,6 +157,8 @@ let ws: WebSocket | null = null;
 export const useAgentStore = create<AgentState>()(
   persist(
     (set, get) => ({
+      token: null,
+      setToken: (token) => set({ token }),
       isConnected: false,
       activeNodeId: null,
       apiKeys: {},
@@ -514,6 +518,7 @@ export const useAgentStore = create<AgentState>()(
         activeNodeId: state.activeNodeId,
         activeTab: state.activeTab,
         activeChatroomId: state.activeChatroomId,
+        token: state.token,
       }),
     }
   )
