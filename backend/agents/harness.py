@@ -435,12 +435,26 @@ class CreateTaskInput(BaseModel):
 
 async def create_task(args: CreateTaskInput) -> str:
     try:
+        band_room_id = None
+        try:
+            from main import registry
+            for org_slug, agents in registry._org_agents.items():
+                for agent in agents.values():
+                    if getattr(agent, 'role', None) == 'planner' and getattr(agent, 'band_room_id', None):
+                        band_room_id = agent.band_room_id
+                        break
+                if band_room_id:
+                    break
+        except Exception:
+            pass
+
         async with AsyncSessionLocal() as session:
             task = TaskNode(
                 repo_id=args.repo_id,
                 title=args.title,
                 description=args.description,
                 assignee_id=args.assignee_id,
+                band_room_id=band_room_id,
                 status="PENDING"
             )
             session.add(task)

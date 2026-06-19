@@ -124,6 +124,7 @@ class TaskNode(Base):
     description = Column(Text)
     status = Column(String, default="PENDING", index=True) # PENDING, IN_PROGRESS, BLOCKED, COMPLETED
     assignee_id = Column(String, index=True) # agent_id of assigned agent
+    band_room_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

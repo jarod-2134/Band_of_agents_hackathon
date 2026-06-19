@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { forceCollide } from 'd3-force';
-import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentStore, API_URL } from '@/store/useAgentStore';
 
 const useThemeColors = () => {
   const theme = useAgentStore(state => state.theme);
@@ -44,13 +44,13 @@ const useThemeColors = () => {
 };
 
 export function ASTGraph() {
-  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
   const currentOrgSlug = useAgentStore(state => state.currentOrgSlug);
   const currentRepoId = useAgentStore(state => state.currentRepoId);
   const [activeRepoDbId, setActiveRepoDbId] = useState('');
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const colors = useThemeColors();
-  const fgRef = useRef<any>();
+  const fgRef = useRef<any>(null);
 
   useEffect(() => {
     if (!currentOrgSlug || !currentRepoId) {
@@ -59,13 +59,13 @@ export function ASTGraph() {
        return;
     }
     
-    fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`)
+    fetch(`${API_URL}/orgs/${currentOrgSlug}/repos`)
       .then(r => r.json())
       .then(data => {
         const repo = data.repositories?.find((r: any) => r.fs_path === currentRepoId);
         if (repo) {
           setActiveRepoDbId(repo.id);
-          return fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}/graph`);
+          return fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${repo.id}/graph`);
         }
         return null;
       })

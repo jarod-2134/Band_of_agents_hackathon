@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAgentStore } from '@/store/useAgentStore';
-import { FileWarning, ChevronRight, Check, X, ArrowDown } from 'lucide-react';
+import { FileWarning, Check, X, ArrowDown } from 'lucide-react';
 import { DiffEditor } from '@monaco-editor/react';
 
 // Simple parser to extract the "ours" and "theirs" versions from conflict markers

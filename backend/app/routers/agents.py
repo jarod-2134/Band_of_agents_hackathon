@@ -304,3 +304,327 @@ async def get_audit_logs(org_slug: str, agent_id: int, db: AsyncSession = Depend
         {"agent_id": str(agent_id)}
     )).mappings().all()
     return {"traces": [dict(row) for row in traces]}
+
+
+def get_mock_messages(room_id: str) -> list:
+    import datetime
+    import json
+    # Generate consistent timestamps starting from 5 minutes ago
+    base_time = datetime.datetime.utcnow() - datetime.timedelta(minutes=5)
+    
+    mock_events = [
+        {
+            "id": "msg-mock-1",
+            "chat_room_id": room_id,
+            "sender_id": "plan-1",
+            "sender_name": "Planner Agent",
+            "sender_type": "agent",
+            "message_type": "thought",
+            "content": "Planner starting up. Objective: Implement user authentication and login pages.",
+            "inserted_at": (base_time + datetime.timedelta(seconds=10)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-2",
+            "chat_room_id": room_id,
+            "sender_id": "plan-1",
+            "sender_name": "Planner Agent",
+            "sender_type": "agent",
+            "message_type": "action",
+            "content": "Spawning engineer agent...",
+            "inserted_at": (base_time + datetime.timedelta(seconds=20)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-3",
+            "chat_room_id": room_id,
+            "sender_id": "plan-1",
+            "sender_name": "Planner Agent",
+            "sender_type": "agent",
+            "message_type": "message",
+            "content": json.dumps({
+                "from_role": "planner",
+                "to_role": "engineer",
+                "message": {"cmd": "execute_task", "task": "Create authentication backend routes and UI forms"}
+            }),
+            "inserted_at": (base_time + datetime.timedelta(seconds=30)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-4",
+            "chat_room_id": room_id,
+            "sender_id": "eng-1",
+            "sender_name": "Engineer Agent",
+            "sender_type": "agent",
+            "message_type": "thought",
+            "content": "Exploring existing user tables and models. Let's create AuthController and index page.",
+            "inserted_at": (base_time + datetime.timedelta(minutes=1)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-5",
+            "chat_room_id": room_id,
+            "sender_id": "eng-1",
+            "sender_name": "Engineer Agent",
+            "sender_type": "agent",
+            "message_type": "action",
+            "content": "Created/Modified files: backend/app/routers/auth.py, frontend/src/components/auth/Login.tsx",
+            "inserted_at": (base_time + datetime.timedelta(minutes=2)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-6",
+            "chat_room_id": room_id,
+            "sender_id": "eng-1",
+            "sender_name": "Engineer Agent",
+            "sender_type": "agent",
+            "message_type": "action",
+            "content": "Committing changes to git branch: feature/auth-implementation",
+            "inserted_at": (base_time + datetime.timedelta(minutes=2, seconds=30)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-7",
+            "chat_room_id": room_id,
+            "sender_id": "eng-1",
+            "sender_name": "Engineer Agent",
+            "sender_type": "agent",
+            "message_type": "message",
+            "content": json.dumps({
+                "from_role": "engineer",
+                "to_role": "planner",
+                "message": {"cmd": "report", "report": "Authentication route and login form have been successfully added."}
+            }),
+            "inserted_at": (base_time + datetime.timedelta(minutes=3)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-8",
+            "chat_room_id": room_id,
+            "sender_id": "plan-1",
+            "sender_name": "Planner Agent",
+            "sender_type": "agent",
+            "message_type": "message",
+            "content": json.dumps({
+                "from_role": "planner",
+                "to_role": "reviewer",
+                "message": {"cmd": "execute_task", "task": "Review git changes for feature/auth-implementation"}
+            }),
+            "inserted_at": (base_time + datetime.timedelta(minutes=3, seconds=15)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-9",
+            "chat_room_id": room_id,
+            "sender_id": "rev-1",
+            "sender_name": "Reviewer Agent",
+            "sender_type": "agent",
+            "message_type": "thought",
+            "content": "Checking diffs and validating route definitions for safety.",
+            "inserted_at": (base_time + datetime.timedelta(minutes=3, seconds=45)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-10",
+            "chat_room_id": room_id,
+            "sender_id": "rev-1",
+            "sender_name": "Reviewer Agent",
+            "sender_type": "agent",
+            "message_type": "message",
+            "content": json.dumps({
+                "from_role": "reviewer",
+                "to_role": "planner",
+                "message": {"cmd": "report", "report": "APPROVED: All security checks pass."}
+            }),
+            "inserted_at": (base_time + datetime.timedelta(minutes=4)).isoformat(),
+            "metadata": {}
+        },
+        {
+            "id": "msg-mock-11",
+            "chat_room_id": room_id,
+            "sender_id": "plan-1",
+            "sender_name": "Planner Agent",
+            "sender_type": "agent",
+            "message_type": "thought",
+            "content": "Project finalized and merged to main. All objectives completed.",
+            "inserted_at": (base_time + datetime.timedelta(minutes=4, seconds=30)).isoformat(),
+            "metadata": {}
+        }
+    ]
+    return mock_events
+
+
+@router.get("/chats", status_code=status.HTTP_200_OK)
+async def list_band_chats(org_slug: str, db: AsyncSession = Depends(get_db)):
+    """Lists all active task chatrooms that have been initialized."""
+    try:
+        result = await db.execute(
+            text("SELECT id, title, description, status, assignee_id, band_room_id, created_at FROM tasks WHERE band_room_id IS NOT NULL ORDER BY created_at DESC")
+        )
+        tasks = result.mappings().all()
+        chat_list = []
+        for row in tasks:
+            chat_list.append({
+                "id": row["id"],
+                "title": row["title"],
+                "description": row["description"],
+                "status": row["status"],
+                "assignee_id": row["assignee_id"],
+                "band_room_id": row["band_room_id"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None
+            })
+        if chat_list:
+            return {"chats": chat_list}
+    except Exception as e:
+        logger.error(f"Error querying task chatrooms: {e}")
+
+    # Fallback/Demo chatroom for offline demoing
+    return {
+        "chats": [
+            {
+                "id": 9999,
+                "title": "Auth Backend & UI Forms",
+                "description": "Create authentication backend routes and UI forms",
+                "status": "COMPLETED",
+                "assignee_id": "eng-1",
+                "band_room_id": "band-mock-demo"
+            }
+        ]
+    }
+
+
+MOCK_USER_MESSAGES = {}
+
+class ChatMessageSendPayload(BaseModel):
+    content: str
+
+
+@router.get("/chats/{room_id}/messages", status_code=status.HTTP_200_OK)
+async def get_band_chat_messages(org_slug: str, room_id: str, db: AsyncSession = Depends(get_db)):
+    """Fetches real Band messages for room_id, falling back to mock logs if offline or mock room."""
+    if room_id.startswith("band-mock-"):
+        base_messages = get_mock_messages(room_id)
+        user_messages = MOCK_USER_MESSAGES.get(room_id, [])
+        return {"messages": base_messages + user_messages}
+
+    try:
+        from main import registry
+        rest_client = None
+        for agents_dict in registry._org_agents.values():
+            for agent in agents_dict.values():
+                if agent.band_agent and agent.band_agent.runtime.link and agent.band_agent.runtime.link.rest:
+                    rest_client = agent.band_agent.runtime.link.rest
+                    break
+            if rest_client:
+                break
+
+        if rest_client:
+            from band.client.rest import DEFAULT_REQUEST_OPTIONS
+            response = await rest_client.agent_api_messages.list_agent_messages(
+                chat_id=room_id,
+                status="all",
+                request_options=DEFAULT_REQUEST_OPTIONS
+            )
+            messages = []
+            for msg in response.data:
+                messages.append({
+                    "id": msg.id,
+                    "chat_room_id": msg.chat_room_id,
+                    "sender_id": msg.sender_id,
+                    "sender_name": msg.sender_name,
+                    "sender_type": msg.sender_type,
+                    "message_type": msg.message_type,
+                    "content": msg.content,
+                    "inserted_at": msg.inserted_at.isoformat() if msg.inserted_at else None,
+                    "metadata": msg.metadata or {}
+                })
+            # Also merge mock-user messages for real rooms if we injected any during testing
+            user_messages = MOCK_USER_MESSAGES.get(room_id, [])
+            return {"messages": messages + user_messages}
+    except Exception as e:
+        logger.error(f"Error fetching real Band messages: {e}")
+
+    # Fallback to mock if anything failed
+    base_messages = get_mock_messages(room_id)
+    user_messages = MOCK_USER_MESSAGES.get(room_id, [])
+    return {"messages": base_messages + user_messages}
+
+
+@router.post("/chats/{room_id}/messages", status_code=status.HTTP_201_CREATED)
+async def inject_band_chat_message(org_slug: str, room_id: str, payload: ChatMessageSendPayload, db: AsyncSession = Depends(get_db)):
+    """Allows user (developer) to inject custom messages into the active chatroom."""
+    if room_id.startswith("band-mock-"):
+        import datetime
+        import uuid
+        if room_id not in MOCK_USER_MESSAGES:
+            MOCK_USER_MESSAGES[room_id] = []
+        new_msg = {
+            "id": f"msg-mock-user-{uuid.uuid4().hex[:6]}",
+            "chat_room_id": room_id,
+            "sender_id": "human-dev",
+            "sender_name": "Developer (Human)",
+            "sender_type": "human",
+            "message_type": "message",
+            "content": payload.content,
+            "inserted_at": datetime.datetime.utcnow().isoformat(),
+            "metadata": {}
+        }
+        MOCK_USER_MESSAGES[room_id].append(new_msg)
+        return {"status": "injected", "message": new_msg}
+
+    # Otherwise, real Band Room ID
+    try:
+        from main import registry
+        rest_client = None
+        for agents_dict in registry._org_agents.values():
+            for agent in agents_dict.values():
+                if agent.band_agent and agent.band_agent.runtime.link and agent.band_agent.runtime.link.rest:
+                    rest_client = agent.band_agent.runtime.link.rest
+                    break
+            if rest_client:
+                break
+
+        if rest_client:
+            from band.client.rest import ChatMessageRequest, DEFAULT_REQUEST_OPTIONS
+            response = await rest_client.agent_api_messages.create_agent_chat_message(
+                chat_id=room_id,
+                message=ChatMessageRequest(content=payload.content),
+                request_options=DEFAULT_REQUEST_OPTIONS
+            )
+            msg = response.data
+            return {
+                "status": "sent",
+                "message": {
+                    "id": msg.id,
+                    "chat_room_id": msg.chat_room_id,
+                    "sender_id": msg.sender_id,
+                    "sender_name": msg.sender_name,
+                    "sender_type": msg.sender_type,
+                    "message_type": msg.message_type,
+                    "content": msg.content,
+                    "inserted_at": msg.inserted_at.isoformat() if msg.inserted_at else None,
+                    "metadata": msg.metadata or {}
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error sending message to Band: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send message: {e}")
+
+    # If offline or no REST client, store in local memory as fallback
+    import datetime
+    import uuid
+    if room_id not in MOCK_USER_MESSAGES:
+        MOCK_USER_MESSAGES[room_id] = []
+    new_msg = {
+        "id": f"msg-mock-user-{uuid.uuid4().hex[:6]}",
+        "chat_room_id": room_id,
+        "sender_id": "human-dev",
+        "sender_name": "Developer (Human)",
+        "sender_type": "human",
+        "message_type": "message",
+        "content": payload.content,
+        "inserted_at": datetime.datetime.utcnow().isoformat(),
+        "metadata": {}
+    }
+    MOCK_USER_MESSAGES[room_id].append(new_msg)
+    return {"status": "injected-fallback", "message": new_msg}

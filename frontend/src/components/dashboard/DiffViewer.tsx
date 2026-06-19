@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentStore, API_URL } from '@/store/useAgentStore';
 import { Code2, Save, Loader2, CheckCircle2 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 
@@ -44,12 +44,12 @@ export function DiffViewer({ diff }: DiffViewerProps) {
     setIsSaving(true);
     setErrorStatus(null);
     try {
-      const r = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`);
+      const r = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos`);
       const data = await r.json();
       const repo = data.repositories?.find((r: any) => r.fs_path === currentRepoId);
       if (!repo) throw new Error("Repo not found");
 
-      const response = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}/commit`, {
+      const response = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${repo.id}/commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

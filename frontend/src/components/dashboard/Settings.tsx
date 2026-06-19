@@ -85,6 +85,17 @@ export function Settings() {
                 <p className="text-xs text-muted-foreground mt-1">Key for https://app.band.ai to access all multi-models.</p>
               </div>
               <div>
+                <label className="block text-sm font-medium mb-1.5 text-foreground">Band Agent ID (UUID)</label>
+                <input 
+                  type="text" 
+                  placeholder="00000000-0000-0000-0000-000000000000" 
+                  className="w-full max-w-md p-2.5 border border-border rounded-md bg-background text-foreground focus:ring-2 focus:ring-primary outline-none text-sm" 
+                  value={apiKeys['band_agent_id'] || ''}
+                  onChange={(e) => setApiKey('band_agent_id', e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">The unique Agent UUID from https://app.band.ai.</p>
+              </div>
+              <div>
                 <label className="block text-sm font-medium mb-1.5 text-foreground">OpenAI API Key</label>
                 <input 
                   type="password" 

@@ -1,6 +1,7 @@
 import asyncio
 import os
 from typing import Callable, Optional, List
+import litellm
 from loguru import logger
 
 from band import Agent
@@ -29,11 +30,18 @@ class BaseAgent:
         self.running = False
         self.log_callback = None
         
-        self.band_id = self.api_keys.get("agent_id")
-        self.band_key = self.api_keys.get("bandai")
+        self.band_id = self.api_keys.get("agent_id") or os.getenv("BAND_AGENT_ID")
+        self.band_key = self.api_keys.get("bandai") or os.getenv("BAND_API_KEY")
         self.band_agent: Optional[Agent] = None
+        self.band_room_id: Optional[str] = None
         self.system_prompt = system_prompt
         self._init_band_context()
+
+    def get_band_tools(self, room_id: str):
+        if self.band_agent and self.band_agent.runtime.link:
+            from band.runtime.tools import AgentTools
+            return AgentTools(room_id, self.band_agent.runtime.link.rest)
+        return None
 
     def get_tools(self) -> List[CustomToolDef]:
         """Override in child classes to provide native Band AI tools."""
@@ -102,17 +110,69 @@ class BaseAgent:
         except Exception as e:
             logger.error(f"Failed to commit log telemetry: {e}")
 
+        # 3. Mirror Thought/Action event to Band Room (if active)
+        if self.band_room_id:
+            tools = self.get_band_tools(self.band_room_id)
+            if tools:
+                try:
+                    await tools.send_event(content=message, message_type=action)
+                except Exception as e:
+                    logger.warning(f"Failed to mirror log event to Band Chatroom: {e}")
+
     async def send_message(self, target_agent, message: dict):
-        # We can still pass internal metadata via this simple queue,
-        # but the agent reasoning logic is now natively managed by Band.
+        # 1. Local Queue Handoff
         await target_agent.inbox.put({
             "from_id": self.id,
             "from_name": self.name,
             "message": message
         })
 
+        # 2. Mirror Handoff to Band Room (if active)
+        if self.band_room_id:
+            tools = self.get_band_tools(self.band_room_id)
+            if tools:
+                import json
+                try:
+                    payload = {
+                        "from_role": self.role,
+                        "to_role": target_agent.role,
+                        "message": message
+                    }
+                    await tools.send_message(content=json.dumps(payload))
+                except Exception as e:
+                    logger.warning(f"Failed to mirror message to Band Chatroom: {e}")
+
     async def process_message(self, message: dict):
         raise NotImplementedError
+
+    async def _call_llm(self, prompt: str, system_prompt: str = "") -> str:
+        kwargs = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.1
+        }
+        
+        # litellm requires the gemini/ prefix to target the Google API
+        model = "gemini/gemini-2.5-flash"
+
+        if self.band_key:
+            kwargs["api_key"] = self.band_key
+            kwargs["api_base"] = "https://app.band.ai/v1"
+            # If routing through Band proxy instead of litellm directly, drop the prefix
+            model = "gemini-2.5-flash" 
+        elif self.api_keys.get("gemini"):
+            kwargs["api_key"] = self.api_keys["gemini"]
+        elif os.getenv("GEMINI_API_KEY"):
+            kwargs["api_key"] = os.getenv("GEMINI_API_KEY")
+
+        try:
+            response = await litellm.acompletion(model=model, **kwargs)
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            await self.log(f"LLM Context Processing Error: {e}", "error")
+            return ""
 
     async def run(self):
         self.running = True

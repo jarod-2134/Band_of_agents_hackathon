@@ -8,9 +8,7 @@ import {
   SearchCheck,
   ShieldCheck,
   ArrowRight,
-  CheckCircle2,
   Clock3,
-  Loader2,
   Radio,
   PlusCircle,
 } from 'lucide-react';
@@ -148,7 +146,7 @@ export function GraphViewer() {
   const setTasks = useAgentStore((state) => state.setTasks);
   const addTask = useAgentStore((state) => state.addTask);
   const tasks = useAgentStore((state) => state.tasks);
-  const [selectedTask, setSelectedTask] = useState(demoTasks[0]);
+  const [selectedTask, setSelectedTask] = useState<any>(demoTasks[0]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
 
   const liveAgentCount = useMemo(() => nodes.length, [nodes]);
@@ -296,7 +294,7 @@ export function GraphViewer() {
             </div>
 
             <div className="space-y-4">
-              {selectedTask.journey.map((step, index) => {
+              {selectedTask.journey.map((step: any, index: number) => {
                 const Icon = step.icon;
 
                 return (
@@ -363,7 +361,7 @@ export function GraphViewer() {
                   <div>
                     <div className="text-xs text-muted-foreground">Acceptance criteria</div>
                     <ul className="list-disc list-inside text-foreground mt-1 space-y-1">
-                      {selectedTask.bandContext.criteria.map((item) => (
+                      {selectedTask.bandContext.criteria.map((item: any) => (
                         <li key={item}>{item}</li>
                       ))}
                     </ul>
@@ -372,7 +370,7 @@ export function GraphViewer() {
                   <div>
                     <div className="text-xs text-muted-foreground">Affected files</div>
                     <div className="mt-1 space-y-1 font-mono text-xs text-foreground">
-                      {selectedTask.bandContext.files.map((file) => (
+                      {selectedTask.bandContext.files.map((file: any) => (
                         <div key={file}>{file}</div>
                       ))}
                     </div>

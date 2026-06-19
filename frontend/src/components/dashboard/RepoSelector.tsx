@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentStore, API_URL } from '@/store/useAgentStore';
 import { Database, Plus, Trash2 } from 'lucide-react';
 import { CloneRepoModal } from './CloneRepoModal';
 import { BranchSelector } from './BranchSelector';
@@ -52,7 +52,7 @@ export function RepoSelector() {
                 return;
               }
               
-              fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}`, { method: 'DELETE' })
+              fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${repo.id}`, { method: 'DELETE' })
                 .then(() => {
                   setConfirmDeleteRepoId(null);
                   connectWebSocket('');

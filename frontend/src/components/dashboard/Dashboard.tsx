@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useAgentStore, type FileNode } from '@/store/useAgentStore';
+import { useAgentStore, type FileNode, API_URL } from '@/store/useAgentStore';
 import { GraphViewer } from './GraphViewer';
 import { DiffViewer } from './DiffViewer';
 import { LogTerminal } from './LogTerminal';
-import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3, Database } from 'lucide-react';
+import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3, Database, MessageSquare } from 'lucide-react';
+import { ChatroomsViewer } from './ChatroomsViewer';
 
 const mockDiffs: Record<string, { original: string; modified: string }> = {
   'frontend/src/Login.tsx': {
@@ -166,7 +167,7 @@ export function Dashboard() {
                 modified: `// Loading ${node.name}...`,
               });
 
-              fetch(`http://localhost:8000/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}?branch=${currentBranch}`)
+              fetch(`${API_URL}/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}?branch=${currentBranch}`)
                 .then((res) => {
                   if (!res.ok) throw new Error('Network response was not ok');
                   return res.json();
@@ -264,6 +265,17 @@ export function Dashboard() {
           >
             <Code className="w-4 h-4" /> Diff View
           </button>
+
+          <button
+            onClick={() => setActiveTab('chats')}
+            className={`px-4 py-1.5 text-sm font-semibold rounded-md border flex items-center gap-2 transition-colors ${
+              activeTab === 'chats'
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-card text-foreground border-border hover:bg-secondary'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" /> Band Chatrooms
+          </button>
         </div>
 
         <div className="flex-1 min-h-0">
@@ -277,6 +289,8 @@ export function Dashboard() {
             </div>
           ) : activeTab === 'graph' ? (
             <GraphViewer />
+          ) : activeTab === 'chats' ? (
+            <ChatroomsViewer />
           ) : (
             <DiffViewer diff={diffToDisplay} />
           )}

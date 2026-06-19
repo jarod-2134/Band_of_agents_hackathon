@@ -2,8 +2,6 @@ import { useMemo } from 'react';
 import { useAgentStore, type FileNode } from '@/store/useAgentStore';
 import {
   Clock,
-  Users,
-  ArrowUpRight,
   Activity,
   Bot,
   AlertCircle,

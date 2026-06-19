@@ -100,7 +100,15 @@ interface AgentState {
   branches: { id: string; name: string; protected: boolean }[];
   currentBranch: string;
   tasks: Task[];
-  activeTab: 'graph' | 'diff';
+  activeTab: 'graph' | 'diff' | 'chats';
+
+  activeChatroomId: string | null;
+  activeChatMessages: any[];
+  isFetchingMessages: boolean;
+  setActiveChatroomId: (roomId: string | null) => void;
+  fetchChatMessages: (roomId: string) => Promise<void>;
+  chats: any[];
+  fetchChats: () => Promise<void>;
 
   activeFeatureScope: string | null;
   setActiveFeatureScope: (scope: string | null) => void;
@@ -111,7 +119,7 @@ interface AgentState {
   setConflictTargetBranch: (branch: string | null) => void;
   resolveMergeConflict: (resolvedFiles: ConflictFile[]) => Promise<void>;
 
-  setActiveTab: (tab: 'graph' | 'diff') => void;
+  setActiveTab: (tab: 'graph' | 'diff' | 'chats') => void;
   setTasks: (tasks: Task[]) => void;
   addTask: (task: Task) => void;
   fetchRepos: () => Promise<void>;
@@ -139,8 +147,8 @@ interface AgentState {
   stopDemoSession: () => void;
 }
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
 
 let ws: WebSocket | null = null;
 
@@ -163,6 +171,33 @@ export const useAgentStore = create<AgentState>()(
       edges: [],
       tasks: [],
       activeTab: 'graph',
+      activeChatroomId: null,
+      activeChatMessages: [],
+      isFetchingMessages: false,
+      setActiveChatroomId: (roomId) => set({ activeChatroomId: roomId }),
+      fetchChatMessages: async (roomId) => {
+        const { currentOrgSlug } = get();
+        set({ isFetchingMessages: true });
+        try {
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/chats/${roomId}/messages`);
+          const data = await res.json();
+          set({ activeChatMessages: data.messages || [], isFetchingMessages: false });
+        } catch (e) {
+          console.error("Failed to fetch chat messages", e);
+          set({ isFetchingMessages: false });
+        }
+      },
+      chats: [],
+      fetchChats: async () => {
+        const { currentOrgSlug } = get();
+        try {
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/chats`);
+          const data = await res.json();
+          set({ chats: data.chats || [] });
+        } catch (e) {
+          console.error("Failed to fetch chats", e);
+        }
+      },
       demoMode: false,
       demoSnapshot: null,
 
@@ -179,7 +214,7 @@ export const useAgentStore = create<AgentState>()(
       addTask: (task) => set((state) => ({ tasks: [...state.tasks, task] })),
 
       fetchRepos: async () => {
-        const { currentOrgSlug, currentRepoId, connectWebSocket } = get();
+        const { currentOrgSlug, currentRepoId } = get();
         try {
           const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos`);
           const data = await res.json();
@@ -478,6 +513,7 @@ export const useAgentStore = create<AgentState>()(
         currentDiff: state.currentDiff,
         activeNodeId: state.activeNodeId,
         activeTab: state.activeTab,
+        activeChatroomId: state.activeChatroomId,
       }),
     }
   )

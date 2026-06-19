@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentStore, API_URL } from '@/store/useAgentStore';
 import { Bot, Play, Square, Plus, Trash2, Send } from 'lucide-react';
 
 export function AgentManager() {
   const currentOrgSlug = useAgentStore((state) => state.currentOrgSlug) || 'jarod-2134';
+  const apiKeys = useAgentStore((state) => state.apiKeys);
   const [agents, setAgents] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
   const [newModel, setNewModel] = useState('gpt-4o');
@@ -16,7 +17,7 @@ export function AgentManager() {
   };
 
   const fetchAgents = () => {
-    fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents`)
+    fetch(`${API_URL}/orgs/${currentOrgSlug}/agents`)
       .then(r => r.json())
       .then(data => {
         if (data.agents) setAgents(data.agents);
@@ -31,7 +32,7 @@ export function AgentManager() {
   const handleCreateAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents`, {
+      const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName, model_spec: newModel })
@@ -46,8 +47,10 @@ export function AgentManager() {
   };
 
   const handleStart = async (id: number) => {
+    const bandAgentId = apiKeys['band_agent_id'] || 'dummy';
+    const bandAgentApiKey = apiKeys['bandai'] || 'dummy';
     try {
-      await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents/${id}/start?band_agent_id=dummy&band_agent_api_key=dummy`, {
+      await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/start?band_agent_id=${encodeURIComponent(bandAgentId)}&band_agent_api_key=${encodeURIComponent(bandAgentApiKey)}`, {
         method: 'POST'
       });
       fetchAgents();
@@ -58,7 +61,7 @@ export function AgentManager() {
 
   const handleStop = async (id: number) => {
     try {
-      await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents/${id}/stop`, {
+      await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/stop`, {
         method: 'POST'
       });
       fetchAgents();
@@ -73,7 +76,7 @@ export function AgentManager() {
       return;
     }
     try {
-      await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents/${id}`, {
+      await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}`, {
         method: 'DELETE'
       });
       setConfirmDeleteId(null);
@@ -89,7 +92,7 @@ export function AgentManager() {
   const handleAssignTask = async (id: number) => {
     const taskId = crypto.randomUUID();
     try {
-      const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents/${id}/assign`, {
+      const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ issue_id: taskId })

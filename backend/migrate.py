@@ -26,7 +26,10 @@ async def migrate():
             await conn.execute(text("ALTER TABLE code_nodes ADD COLUMN IF NOT EXISTS repo_id VARCHAR;"))
             await conn.execute(text("ALTER TABLE code_nodes ALTER COLUMN embedding TYPE vector(768);"))
             
-            print("Successfully migrated schemas! Added vectorized columns to commits, prs, and sprints.")
+            # Add missing column to tasks
+            await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS band_room_id VARCHAR;"))
+            
+            print("Successfully migrated schemas! Added vectorized columns to commits, prs, and sprints, and band_room_id to tasks.")
         except Exception as e:
             print(f"Error altering tables: {e}")
 

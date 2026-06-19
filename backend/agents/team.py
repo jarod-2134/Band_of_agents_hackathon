@@ -108,6 +108,7 @@ class PlannerAgent(BaseAgent):
             
             agent = cls_map[args.role](args.name, self.org_slug, self.id, self.api_keys)
             agent.id = str(db_id)  # Override UUID with DB ID
+            agent.band_room_id = self.band_room_id
             if self.log_callback:
                 agent.set_log_callback(self.log_callback)
             registry.register(self.org_slug, agent)
@@ -196,6 +197,26 @@ class PlannerAgent(BaseAgent):
         msg = message.get("message")
         if msg == "start" or (isinstance(msg, dict) and msg.get("cmd") == "start"):
             instructions = msg.get("instructions", "No initial instructions.")
+            
+            # Create a Band Chatroom if we are connected to Band
+            room_id = None
+            if self.band_agent and self.band_agent.runtime.link and self.band_agent.runtime.link.rest:
+                try:
+                    from band.client.rest import ChatRoomRequest, DEFAULT_REQUEST_OPTIONS
+                    rest_client = self.band_agent.runtime.link.rest
+                    response = await rest_client.agent_api_chats.create_agent_chat(
+                        chat=ChatRoomRequest(task_id=f"task-{generate_id()}"),
+                        request_options=DEFAULT_REQUEST_OPTIONS
+                    )
+                    room_id = response.data.id
+                    await self.log(f"Successfully created Band Chatroom: {room_id}", AgentAction.SPIN_UP_AGENT)
+                except Exception as e:
+                    await self.log(f"Failed to create Band Chatroom, falling back to mock: {e}", AgentAction.SPIN_UP_AGENT)
+            
+            if not room_id:
+                room_id = f"band-mock-{uuid.uuid4().hex[:8]}"
+
+            self.band_room_id = room_id
             await self.log(f"Planner starting up. Objectives: {instructions}", AgentAction.SPIN_UP_AGENT)
             # To actually trigger the agent to think natively via Band, someone needs to send it a message 
             # via the Band Network. If we want it to react internally, we might need a custom bridge 

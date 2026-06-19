@@ -1,10 +1,9 @@
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { GitBranch, Layers, Code2, Bot, ArrowRight } from 'lucide-react';
 import { useRef } from 'react';
 
 export function Home() {
-  const navigate = useNavigate();
   const targetRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({
     target: targetRef,

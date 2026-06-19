@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, GitPullRequest, FolderPlus, Loader2 } from 'lucide-react';
-import { useAgentStore } from '@/store/useAgentStore';
+import { useAgentStore, API_URL } from '@/store/useAgentStore';
 
 interface CloneRepoModalProps {
   isOpen: boolean;
@@ -39,7 +39,7 @@ export function CloneRepoModal({ isOpen, onClose, onSuccess }: CloneRepoModalPro
             name: formData.name
           };
 
-      const response = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos${endpoint}`, {
+      const response = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
