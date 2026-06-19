@@ -277,11 +277,13 @@ export const useAgentStore = create<AgentState>()(
       },
 
       mergeBranch: async (sourceBranch: string, targetBranch: string) => {
-        const { currentOrgSlug, currentRepoId } = get();
+        const { currentOrgSlug, currentRepoId, repos } = get();
         if (!currentOrgSlug || !currentRepoId) return;
+        const repo = repos.find((r) => r.fs_path === currentRepoId);
+        const actualRepoId = repo ? repo.id : currentRepoId;
 
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${currentRepoId}/branches/merge`, {
+          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source_branch: sourceBranch, target_branch: targetBranch })
@@ -308,11 +310,14 @@ export const useAgentStore = create<AgentState>()(
       },
 
       resolveMergeConflict: async (resolvedFiles: ConflictFile[]) => {
-        const { currentOrgSlug, currentRepoId, currentBranch, conflictTargetBranch } = get();
+        const { currentOrgSlug, currentRepoId, currentBranch, conflictTargetBranch, repos } = get();
         if (!currentOrgSlug || !currentRepoId || !conflictTargetBranch) return;
 
+        const repo = repos.find((r) => r.fs_path === currentRepoId);
+        const actualRepoId = repo ? repo.id : currentRepoId;
+
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${currentRepoId}/branches/merge/resolve`, {
+          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge/resolve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -465,6 +470,7 @@ export const useAgentStore = create<AgentState>()(
         theme: state.theme,
         currentRepoId: state.currentRepoId,
         currentOrgSlug: state.currentOrgSlug,
+        currentBranch: state.currentBranch,
         apiKeys: state.apiKeys,
         currentDiff: state.currentDiff,
         activeNodeId: state.activeNodeId,

@@ -28,13 +28,24 @@ async def get_db():
 async def init_db():
     # Initialize tables
     async with engine.begin() as conn:
-        # Enable pgvector extension
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        # Enable pgvector extension (may fail on pooled connections — enable via Supabase Dashboard instead)
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Could not create vector extension via connection (likely using a pooler). "
+                f"Ensure pgvector is enabled in your Supabase Dashboard. Error: {e}"
+            )
         await conn.run_sync(Base.metadata.create_all)
         
     # Check for default user and create if missing
-    async with AsyncSessionLocal() as session:
-        user = await session.execute(text("SELECT id FROM users LIMIT 1"))
-        if not user.scalar():
-            await session.execute(text("INSERT INTO users (name, email) VALUES ('System Admin', 'admin@example.com')"))
-            await session.commit()
+    try:
+        async with AsyncSessionLocal() as session:
+            user = await session.execute(text("SELECT id FROM users LIMIT 1"))
+            if not user.scalar():
+                await session.execute(text("INSERT INTO users (name, email) VALUES ('System Admin', 'admin@example.com')"))
+                await session.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Default user check skipped: {e}")

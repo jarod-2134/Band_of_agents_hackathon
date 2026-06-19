@@ -28,6 +28,8 @@ export function DiffViewer({ diff }: DiffViewerProps) {
   const currentOrgSlug = useAgentStore((state) => state.currentOrgSlug);
   const currentRepoId = useAgentStore((state) => state.currentRepoId);
   
+  const currentBranch = useAgentStore((state) => state.currentBranch);
+  
   const [content, setContent] = useState(diff.modified);
   const [isSaving, setIsSaving] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -51,7 +53,7 @@ export function DiffViewer({ diff }: DiffViewerProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          branch: 'main',
+          branch: currentBranch,
           message: `Update ${diff.filePath} via Web Editor`,
           author: {
             name: 'Web Editor',
@@ -67,6 +69,13 @@ export function DiffViewer({ diff }: DiffViewerProps) {
       if (!response.ok) {
         throw new Error("Failed to save");
       }
+      
+      const setCurrentDiff = useAgentStore.getState().setCurrentDiff;
+      setCurrentDiff({
+        ...diff,
+        modified: content
+      });
+
       setIsSuccess(true);
       setTimeout(() => setIsSuccess(false), 2000);
     } catch (err: any) {

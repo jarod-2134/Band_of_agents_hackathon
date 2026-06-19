@@ -1,0 +1,9 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+# from database import get_db
+
+router = APIRouter(prefix="/template", tags=["Template"])
+
+@router.get("/")
+def get_template(skip: int = 0, limit: int = 100):
+    return {"message": "Hello from template scaffold"}

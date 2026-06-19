@@ -187,10 +187,10 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
         logger.error(f"Atomic step 1 failed: DB insertion exception: {e}")
         raise HTTPException(status_code=500, detail="Failed to register repository record.")
 
-    # Step 2: Initialize bare repo and generate a REAL physical root commit
+    # Step 2: Initialize repo and generate a REAL physical root commit
     try:
         os.makedirs(repo_path, exist_ok=True)
-        git_repo = pygit2.init_repository(repo_path, bare=True)
+        git_repo = pygit2.init_repository(repo_path, bare=False)
         
         # Craft a signature for the system agent
         author = pygit2.Signature('System Agent', 'system@mesh.internal')
@@ -215,6 +215,7 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
         
         # Set HEAD to point directly to our newly populated main branch
         git_repo.set_head(f"refs/heads/{default_branch}")
+        git_repo.checkout_head()
         logger.info(f"Atomic step 2 complete: Bare repo created with real root commit: {actual_git_sha}")
         
     except Exception as e:
@@ -342,7 +343,7 @@ async def clone_repository(org_slug: str, payload: RepoClonePayload, db: Session
             credentials = pygit2.UserPass("x-access-token", payload.github_token)
             callbacks = pygit2.RemoteCallbacks(credentials=credentials)
         
-        git_repo = pygit2.clone_repository(payload.repo_url, repo_path, bare=True, callbacks=callbacks)
+        git_repo = pygit2.clone_repository(payload.repo_url, repo_path, bare=False, callbacks=callbacks)
         
         # Get actual default branch
         head_ref = git_repo.head
@@ -565,6 +566,38 @@ async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayloa
                 detail="Cannot register metadata because no users exist in the platform context."
             )
 
+        # Insert the source commit into commits table first to satisfy fk_branches_head_sha constraint
+        commit_message = source_commit.message.strip() if source_commit.message else "Branch source commit"
+        commit_embedding = semantic_indexer.encode_text(commit_message)
+        await db.execute(
+            text("""
+                INSERT INTO commits (
+                    sha, org_slug, repo_id, message, author_name, 
+                    author_email, branch, parent_shas, files_changed, 
+                    insertions, deletions, committed_at, embedding
+                )
+                VALUES (
+                    :sha, :org_slug, :repo_id, :message, :author_name, 
+                    :author_email, :branch, :parent_shas, 0, 
+                    0, 0, :committed_at, :embedding
+                )
+                ON CONFLICT (sha) DO NOTHING
+            """),
+            {
+                "sha": physical_head_sha,
+                "org_slug": org_slug, 
+                "repo_id": repo_id,
+                "branch": payload.name,
+                "message": commit_message,
+                "author_name": source_commit.author.name if source_commit.author else "System Agent",
+                "author_email": source_commit.author.email if source_commit.author else "system@mesh.internal",
+                "parent_shas": json.dumps([str(p) for p in source_commit.parent_ids]) if source_commit.parent_ids else "[]",
+                "committed_at": datetime.now(timezone.utc),
+                "embedding": json.dumps(commit_embedding)
+            }
+        )
+        await db.flush()
+
         await db.execute(
             text("""
                 INSERT INTO branches (repo_id, name, head_sha, status, protected, created_by) 
@@ -573,7 +606,7 @@ async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayloa
             {
                 "repo_id": repo_id, 
                 "name": payload.name, 
-                "head_sha": physical_head_sha, # 👈 Legitimate SHA string
+                "head_sha": physical_head_sha, # 👈 Legitimate SHA string, now guaranteed to exist in commits
                 "protected": False,
                 "created_by": valid_user_id 
             }
@@ -669,6 +702,31 @@ async def merge_branch(org_slug: str, repo_id: str, payload: BranchMergePayload,
         head_commit = git_repo.get(head_ref.target)
         base_commit = git_repo.get(base_ref.target)
 
+        # If both branches point to the same commit, it's already up-to-date
+        if str(head_commit.id) == str(base_commit.id):
+            # Still clean up the source branch
+            try:
+                is_protected_proxy = await db.execute(
+                    text("SELECT protected FROM branches WHERE repo_id = :repo_id AND name = :name"),
+                    {"repo_id": repo_id, "name": payload.source_branch}
+                )
+                is_protected = is_protected_proxy.scalar()
+
+                if not is_protected and payload.source_branch != "main":
+                    source_branch_obj = git_repo.lookup_branch(payload.source_branch)
+                    if source_branch_obj:
+                        source_branch_obj.delete()
+                    await db.execute(
+                        text("DELETE FROM branches WHERE repo_id = :repo_id AND name = :name"),
+                        {"repo_id": repo_id, "name": payload.source_branch}
+                    )
+                    await db.commit()
+                    background_tasks.add_task(semantic_indexer.delete_branch_embeddings, repo_id, payload.source_branch)
+            except Exception as cleanup_err:
+                logger.warning(f"Could not auto-delete source branch: {cleanup_err}")
+
+            return {"status": "already_up_to_date", "message": "Source and target branches are at the same commit. Nothing to merge."}
+
         merge_index = git_repo.merge_commits(base_commit, head_commit)
         if merge_index.conflicts:
             conflict_files = []
@@ -732,6 +790,31 @@ async def merge_branch(org_slug: str, repo_id: str, payload: BranchMergePayload,
                         )
                 except Exception as index_err:
                     logger.error(f"Failed parsing file {file_path}: {index_err}")
+
+        # Auto-delete the source branch after successful merge (skip if protected)
+        try:
+            is_protected_proxy = await db.execute(
+                text("SELECT protected FROM branches WHERE repo_id = :repo_id AND name = :name"),
+                {"repo_id": repo_id, "name": payload.source_branch}
+            )
+            is_protected = is_protected_proxy.scalar()
+
+            if not is_protected and payload.source_branch != "main":
+                # Delete from git
+                source_branch_obj = git_repo.lookup_branch(payload.source_branch)
+                if source_branch_obj:
+                    source_branch_obj.delete()
+                # Delete from DB
+                await db.execute(
+                    text("DELETE FROM branches WHERE repo_id = :repo_id AND name = :name"),
+                    {"repo_id": repo_id, "name": payload.source_branch}
+                )
+                await db.commit()
+                # Clean up semantic nodes for this branch in the background
+                background_tasks.add_task(semantic_indexer.delete_branch_embeddings, repo_id, payload.source_branch)
+                logger.info(f"Auto-deleted source branch '{payload.source_branch}' after merge.")
+        except Exception as cleanup_err:
+            logger.warning(f"Could not auto-delete source branch after merge: {cleanup_err}")
                     
         return {"status": "merged", "merge_commit_sha": str(merge_commit_sha)}
     except HTTPException:
@@ -765,12 +848,18 @@ async def resolve_merge_conflict(org_slug: str, repo_id: str, payload: BranchMer
         # Apply resolutions
         for resolved_file in payload.resolved_files:
             # Create a new blob with the resolved content
-            blob_id = git_repo.create_blob(resolved_file.content)
+            blob_id = git_repo.create_blob(resolved_file.content.encode('utf-8'))
             # Add to the index to clear the conflict
             entry = pygit2.IndexEntry(resolved_file.path, blob_id, pygit2.GIT_FILEMODE_BLOB)
             merge_index.add(entry)
             
-        if merge_index.conflicts:
+            if merge_index.conflicts is not None:
+                try:
+                    del merge_index.conflicts[resolved_file.path]
+                except KeyError:
+                    pass
+            
+        if merge_index.conflicts is not None and list(merge_index.conflicts):
             raise HTTPException(status_code=400, detail="Not all conflicts have been resolved.")
 
         tree_oid = merge_index.write_tree(git_repo)
@@ -813,13 +902,37 @@ async def resolve_merge_conflict(org_slug: str, repo_id: str, payload: BranchMer
         )
         await db.commit()
         
+        # Auto-delete the source branch after successful merge resolution (skip if protected)
+        try:
+            is_protected_proxy = await db.execute(
+                text("SELECT protected FROM branches WHERE repo_id = :repo_id AND name = :name"),
+                {"repo_id": repo_id, "name": payload.source_branch}
+            )
+            is_protected = is_protected_proxy.scalar()
+
+            if not is_protected and payload.source_branch != "main":
+                # Delete from git
+                source_branch_obj = git_repo.lookup_branch(payload.source_branch)
+                if source_branch_obj:
+                    source_branch_obj.delete()
+                # Delete from DB
+                await db.execute(
+                    text("DELETE FROM branches WHERE repo_id = :repo_id AND name = :name"),
+                    {"repo_id": repo_id, "name": payload.source_branch}
+                )
+                await db.commit()
+                # Clean up semantic nodes for this branch in the background
+                background_tasks.add_task(semantic_indexer.delete_branch_embeddings, repo_id, payload.source_branch)
+                logger.info(f"Auto-deleted source branch '{payload.source_branch}' after resolving merge.")
+        except Exception as cleanup_err:
+            logger.warning(f"Could not auto-delete source branch after merge resolution: {cleanup_err}")
+
         return {"status": "resolved_and_merged", "merge_commit_sha": str(merge_commit_sha)}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Merge resolve error: {e}")
         raise HTTPException(status_code=500, detail=f"Merge resolution failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Merge failed: {e}")
 
 
 @router.patch("/{repo_id}/branches/{branch_name:path}/protect")
