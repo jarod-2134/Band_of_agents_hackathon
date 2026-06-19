@@ -97,7 +97,7 @@ export function AgentNetworkGraph() {
     if (!goal) return;
     // Matches the WS `start_manager` handler in backend/main.py: it boots a
     // HeadAgent (planner) that delegates to a Manager -> Engineer + Reviewer tree.
-    sendMessage({
+    const sent = sendMessage({
       type: 'start_manager',
       instructions: goal,
       apiKeys: {
@@ -106,6 +106,14 @@ export function AgentNetworkGraph() {
       },
       branch: currentBranch || 'main',
     });
+    if (!sent) {
+      useAgentStore.getState().addLog({
+        message: 'Could not start planner — control plane not connected. Wait for the backend to finish booting, then retry.',
+        type: 'error',
+        agentRole: 'planner',
+      });
+      return;
+    }
     useAgentStore.getState().addLog({
       message: `Spinning up planner team for: "${goal}"`,
       type: 'action',

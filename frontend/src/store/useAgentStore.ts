@@ -131,7 +131,7 @@ interface AgentState {
   fetchFileTree: (repoId: string) => Promise<void>;
   connectWebSocket: (repoId: string) => void;
   disconnectWebSocket: () => void;
-  sendMessage: (payload: any) => void;
+  sendMessage: (payload: any) => boolean;
   setActiveNode: (nodeId: string | null) => void;
   updateFileTree: (tree: FileNode[]) => void;
   addLog: (log: Omit<LogEntry, 'id' | 'timestamp'>) => void;
@@ -156,6 +156,8 @@ export const API_URL = import.meta.env.VITE_API_URL || '';
 export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
 
 let ws: WebSocket | null = null;
+let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let wsIntentionalClose = false;
 
 /**
  * Authenticated fetch wrapper for the control-plane API.
@@ -455,15 +457,22 @@ export const useAgentStore = create<AgentState>()(
       connectWebSocket: (repoId: string) => {
         const { currentOrgSlug } = get();
         set({ currentRepoId: repoId, isConnected: false });
-        
+
         get().fetchBranches(repoId).then(() => {
           get().fetchFileTree(repoId);
         });
 
+        // Cancel any pending reconnect and start a fresh connection
+        if (wsReconnectTimer) {
+          clearTimeout(wsReconnectTimer);
+          wsReconnectTimer = null;
+        }
         if (ws) {
+          wsIntentionalClose = true;
           ws.close();
         }
 
+        wsIntentionalClose = false;
         ws = new WebSocket(`${WS_URL}/ws/${currentOrgSlug}/${repoId}`);
 
         ws.onopen = () => {
@@ -488,11 +497,26 @@ export const useAgentStore = create<AgentState>()(
 
         ws.onclose = () => {
           set({ isConnected: false });
-          get().addLog({ message: "WebSocket disconnected", type: 'error' });
+          // Only attempt auto-reconnect if this wasn't an intentional close
+          // (e.g. logout, repo switch). This lets the UI survive a backend
+          // restart/boot delay without the user having to refresh the page.
+          if (!wsIntentionalClose) {
+            get().addLog({ message: "Control plane disconnected — retrying in 3s...", type: 'error' });
+            if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = setTimeout(() => {
+              const rid = get().currentRepoId;
+              if (rid) get().connectWebSocket(rid);
+            }, 3000);
+          }
         };
       },
 
       disconnectWebSocket: () => {
+        wsIntentionalClose = true;
+        if (wsReconnectTimer) {
+          clearTimeout(wsReconnectTimer);
+          wsReconnectTimer = null;
+        }
         if (ws) {
           ws.close();
           ws = null;
@@ -502,7 +526,9 @@ export const useAgentStore = create<AgentState>()(
       sendMessage: (payload: any) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify(payload));
+          return true;
         }
+        return false;
       },
 
       setActiveNode: (nodeId) => set({ activeNodeId: nodeId }),
