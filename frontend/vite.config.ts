@@ -10,4 +10,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    allowedHosts: true // Allows your ngrok tunnel to safely bypass the host check
+  }
 })

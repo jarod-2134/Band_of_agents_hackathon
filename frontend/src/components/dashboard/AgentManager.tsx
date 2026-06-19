@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useAgentStore, API_URL } from '@/store/useAgentStore';
+import { useAgentStore, API_URL, apiFetch } from '@/store/useAgentStore';
 import { Bot, Play, Square, Plus, Trash2, Send } from 'lucide-react';
 
 export function AgentManager() {
-  const currentOrgSlug = useAgentStore((state) => state.currentOrgSlug) || 'jarod-2134';
+  const currentOrgSlug = useAgentStore((state) => state.currentOrgSlug) || 'default';
   const apiKeys = useAgentStore((state) => state.apiKeys);
   const [agents, setAgents] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
-  const [newModel, setNewModel] = useState('gpt-4o');
+  const [newModel, setNewModel] = useState('gemini-2.5-flash');
   const [statusMessage, setStatusMessage] = useState<{text: string, type: 'error'|'success'} | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
@@ -17,7 +17,7 @@ export function AgentManager() {
   };
 
   const fetchAgents = () => {
-    fetch(`${API_URL}/orgs/${currentOrgSlug}/agents`)
+    apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents`)
       .then(r => r.json())
       .then(data => {
         if (data.agents) setAgents(data.agents);
@@ -32,9 +32,8 @@ export function AgentManager() {
   const handleCreateAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents`, {
+      const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName, model_spec: newModel })
       });
       if (res.ok) {
@@ -50,7 +49,7 @@ export function AgentManager() {
     const bandAgentId = apiKeys['band_agent_id'] || 'dummy';
     const bandAgentApiKey = apiKeys['bandai'] || 'dummy';
     try {
-      await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/start?band_agent_id=${encodeURIComponent(bandAgentId)}&band_agent_api_key=${encodeURIComponent(bandAgentApiKey)}`, {
+      await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/start?band_agent_id=${encodeURIComponent(bandAgentId)}&band_agent_api_key=${encodeURIComponent(bandAgentApiKey)}`, {
         method: 'POST'
       });
       fetchAgents();
@@ -61,7 +60,7 @@ export function AgentManager() {
 
   const handleStop = async (id: number) => {
     try {
-      await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/stop`, {
+      await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/stop`, {
         method: 'POST'
       });
       fetchAgents();
@@ -76,7 +75,7 @@ export function AgentManager() {
       return;
     }
     try {
-      await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}`, {
+      await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}`, {
         method: 'DELETE'
       });
       setConfirmDeleteId(null);
@@ -92,9 +91,8 @@ export function AgentManager() {
   const handleAssignTask = async (id: number) => {
     const taskId = crypto.randomUUID();
     try {
-      const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/assign`, {
+      const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/assign`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ issue_id: taskId })
       });
       if (res.ok) {
@@ -143,13 +141,16 @@ export function AgentManager() {
           </div>
           <div className="flex-1">
             <label className="block text-sm font-medium mb-1">Model Spec</label>
-            <input 
-              type="text" 
+            <select
               value={newModel}
               onChange={e => setNewModel(e.target.value)}
               className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
               required
-            />
+            >
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash (default)</option>
+              <option value="gpt-4o">GPT-4o</option>
+              <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+            </select>
           </div>
           <button type="submit" className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 hover:bg-primary/90 transition-colors">
             <Plus className="w-4 h-4" />

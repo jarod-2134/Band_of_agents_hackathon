@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAgentStore, type FileNode, API_URL } from '@/store/useAgentStore';
+import { useAgentStore, type FileNode, API_URL, apiFetch } from '@/store/useAgentStore';
 import { GraphViewer } from './GraphViewer';
 import { DiffViewer } from './DiffViewer';
 import { LogTerminal } from './LogTerminal';
@@ -167,7 +167,7 @@ export function Dashboard() {
                 modified: `// Loading ${node.name}...`,
               });
 
-              fetch(`${API_URL}/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}?branch=${currentBranch}`)
+              apiFetch(`${API_URL}/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}?branch=${currentBranch}`)
                 .then((res) => {
                   if (!res.ok) throw new Error('Network response was not ok');
                   return res.json();

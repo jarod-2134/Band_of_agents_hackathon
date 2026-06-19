@@ -12,7 +12,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
 import { useAgentStore, type GraphNode, type GraphEdge } from '@/store/useAgentStore';
-import { Activity, Clock3, MessageSquareText, ShieldAlert, FileCode2 } from 'lucide-react';
+import { Activity, Clock3, MessageSquareText, ShieldAlert, FileCode2, Plus, Sparkles, X } from 'lucide-react';
 
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -77,7 +77,44 @@ export function AgentNetworkGraph() {
   const storeNodes = useAgentStore((state) => state.nodes);
   const storeEdges = useAgentStore((state) => state.edges);
   const logs = useAgentStore((state) => state.logs);
-  
+
+  // Viber "+" plumbing: spin up a planner team over the control-plane WS
+  const isConnected = useAgentStore((state) => state.isConnected);
+  const currentRepoId = useAgentStore((state) => state.currentRepoId);
+  const currentBranch = useAgentStore((state) => state.currentBranch);
+  const apiKeys = useAgentStore((state) => state.apiKeys);
+  const sendMessage = useAgentStore((state) => state.sendMessage);
+
+  const [showSpinnerPrompt, setShowSpinnerPrompt] = useState(false);
+  const [objective, setObjective] = useState('');
+
+  // Can vibers spin up a team? Only when the control plane WS is live for a repo.
+  const canSpinUp = isConnected && !!currentRepoId;
+
+  const handleSpinUpPlanner = (e: React.FormEvent) => {
+    e.preventDefault();
+    const goal = objective.trim();
+    if (!goal) return;
+    // Matches the WS `start_manager` handler in backend/main.py: it boots a
+    // HeadAgent (planner) that delegates to a Manager -> Engineer + Reviewer tree.
+    sendMessage({
+      type: 'start_manager',
+      instructions: goal,
+      apiKeys: {
+        agent_id: apiKeys['band_agent_id'] || '',
+        bandai: apiKeys['bandai'] || '',
+      },
+      branch: currentBranch || 'main',
+    });
+    useAgentStore.getState().addLog({
+      message: `Spinning up planner team for: "${goal}"`,
+      type: 'action',
+      agentRole: 'planner',
+    });
+    setObjective('');
+    setShowSpinnerPrompt(false);
+  };
+
   const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
   
@@ -183,6 +220,55 @@ export function AgentNetworkGraph() {
             <div className="text-[10px] text-muted-foreground mt-2 text-right">
               {new Date(latestHoverLog.timestamp).toLocaleTimeString()}
             </div>
+          </div>
+        )}
+
+        {/* Viber "+" button: spin up a planner team that delegates to coders/reviewers */}
+        {canSpinUp && !showSpinnerPrompt && (
+          <button
+            onClick={() => setShowSpinnerPrompt(true)}
+            title="Spin up a planner agent to delegate work"
+            className="absolute bottom-6 right-6 z-20 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-105 hover:bg-primary/90 transition-all"
+          >
+            <Plus className="w-7 h-7" />
+          </button>
+        )}
+
+        {showSpinnerPrompt && (
+          <div className="absolute bottom-6 right-6 z-20 w-80 bg-card border border-border shadow-xl rounded-lg p-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-sm font-semibold text-foreground">Spin up planner</span>
+              </div>
+              <button
+                onClick={() => setShowSpinnerPrompt(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Describe an objective. The planner will delegate to engineer &amp; reviewer agents.
+            </p>
+            <form onSubmit={handleSpinUpPlanner} className="flex flex-col gap-2">
+              <input
+                type="text"
+                autoFocus
+                value={objective}
+                onChange={(e) => setObjective(e.target.value)}
+                placeholder="e.g. Add a dark mode toggle to the settings page"
+                className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
+              />
+              <button
+                type="submit"
+                disabled={!objective.trim()}
+                className="bg-primary text-primary-foreground px-3 py-2 rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                Launch team
+              </button>
+            </form>
           </div>
         )}
       </div>

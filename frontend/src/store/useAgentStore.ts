@@ -154,6 +154,39 @@ export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
 
 let ws: WebSocket | null = null;
 
+/**
+ * Authenticated fetch wrapper for the control-plane API.
+ *
+ * The backend's LifecycleSecurityMiddleware requires a Bearer JWT on every
+ * non-exempt path. This attaches the stored token to all dashboard API calls,
+ * merges JSON content headers, and bounces to /login on a 401 so stale tokens
+ * don't silently break the UI.
+ */
+export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const token = useAgentStore.getState().token;
+  const headers: Record<string, string> = {
+    ...(init.headers as Record<string, string> | undefined),
+  };
+
+  // Default to JSON when the caller provides a body and didn't set a content type
+  if (init.body && !headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(input, { ...init, headers });
+
+  if (res.status === 401) {
+    useAgentStore.getState().setToken(null);
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.assign('/login');
+    }
+  }
+  return res;
+}
+
 export const useAgentStore = create<AgentState>()(
   persist(
     (set, get) => ({
@@ -183,7 +216,7 @@ export const useAgentStore = create<AgentState>()(
         const { currentOrgSlug } = get();
         set({ isFetchingMessages: true });
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/chats/${roomId}/messages`);
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/chats/${roomId}/messages`);
           const data = await res.json();
           set({ activeChatMessages: data.messages || [], isFetchingMessages: false });
         } catch (e) {
@@ -195,7 +228,7 @@ export const useAgentStore = create<AgentState>()(
       fetchChats: async () => {
         const { currentOrgSlug } = get();
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/agents/chats`);
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/chats`);
           const data = await res.json();
           set({ chats: data.chats || [] });
         } catch (e) {
@@ -220,7 +253,7 @@ export const useAgentStore = create<AgentState>()(
       fetchRepos: async () => {
         const { currentOrgSlug, currentRepoId } = get();
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos`);
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos`);
           const data = await res.json();
           const repos = data.repositories || [];
           set({ repos });
@@ -250,7 +283,7 @@ export const useAgentStore = create<AgentState>()(
         const repo = repos.find((r) => r.fs_path === repoId);
         const actualRepoId = repo ? repo.id : repoId;
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`);
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`);
           const data = await res.json();
           const branches = data.branches || [];
           set({ branches });
@@ -272,9 +305,8 @@ export const useAgentStore = create<AgentState>()(
         const repo = repos.find((r) => r.fs_path === currentRepoId);
         const actualRepoId = repo ? repo.id : currentRepoId;
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`, {
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, source_branch: sourceBranch })
           });
           
@@ -298,7 +330,7 @@ export const useAgentStore = create<AgentState>()(
         const repo = repos.find((r) => r.fs_path === currentRepoId);
         const actualRepoId = repo ? repo.id : currentRepoId;
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/${name}`, {
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/${name}`, {
             method: 'DELETE'
           });
           
@@ -325,9 +357,8 @@ export const useAgentStore = create<AgentState>()(
         const actualRepoId = repo ? repo.id : currentRepoId;
 
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge`, {
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source_branch: sourceBranch, target_branch: targetBranch })
           });
           
@@ -359,9 +390,8 @@ export const useAgentStore = create<AgentState>()(
         const actualRepoId = repo ? repo.id : currentRepoId;
 
         try {
-          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge/resolve`, {
+          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge/resolve`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               source_branch: currentBranch,
               target_branch: conflictTargetBranch,
@@ -396,7 +426,7 @@ export const useAgentStore = create<AgentState>()(
       fetchFileTree: async (repoId: string) => {
         const { currentBranch } = get();
         try {
-          const res = await fetch(`${API_URL}/api/repos/${repoId}/files?branch=${currentBranch}`);
+          const res = await apiFetch(`${API_URL}/api/repos/${repoId}/files?branch=${currentBranch}`);
           const data = await res.json();
           set({ fileTree: data.files || [] });
         } catch (e) {

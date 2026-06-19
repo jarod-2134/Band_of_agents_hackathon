@@ -9,8 +9,12 @@ attrs==25.3.0
 autobahn==25.10.2
 Automat==25.4.16
 babel==2.17.0
+# Band AI SDK + Google ADK extra. The google_adk extra pulls google-adk, which
+# is required by band.adapters.GoogleADKAdapter (used by BaseAgent). Without it,
+# starting any agent raises ImportError -> HTTP 500 on /agents/{id}/start.
+band-sdk[google_adk]==1.0.0
 beautifulsoup4==4.12.3
-bleach==6.2.0
+bleach==6.0.0
 certifi==2024.12.14
 cffi==2.0.0
 charset-normalizer==3.4.1
