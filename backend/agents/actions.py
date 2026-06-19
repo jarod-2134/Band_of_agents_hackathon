@@ -1,6 +1,6 @@
 from enum import Enum
 
-stuffs = None
+stuffs = True
 
 class AgentRole(str, Enum):
     CEO = "ceo"
