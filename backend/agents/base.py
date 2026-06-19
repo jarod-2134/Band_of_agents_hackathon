@@ -160,11 +160,16 @@ class BaseAgent:
         # to Vertex AI -> "default credentials were not found"). We instead use
         # whichever real LLM provider key is available, in priority order, with
         # the litellm provider prefix that targets the right backend.
+        groq_key = self.api_keys.get("groq") or os.getenv("GROQ_API_KEY")
         gemini_key = self.api_keys.get("gemini") or os.getenv("GEMINI_API_KEY")
         openai_key = self.api_keys.get("openai") or os.getenv("OPENAI_API_KEY")
         anthropic_key = self.api_keys.get("anthropic") or os.getenv("ANTHROPIC_API_KEY")
 
-        if gemini_key:
+        if groq_key:
+            # Groq is OpenAI-compatible and very fast; litellm needs the groq/ prefix.
+            model = "groq/llama-3.3-70b-versatile"
+            kwargs["api_key"] = groq_key
+        elif gemini_key:
             model = "gemini/gemini-2.5-flash"
             kwargs["api_key"] = gemini_key
         elif openai_key:
@@ -177,8 +182,9 @@ class BaseAgent:
             # No LLM provider configured. Log once so the operator knows the
             # agents will run but produce no LLM output until a key is added.
             await self.log(
-                "No LLM provider key configured (set GEMINI_API_KEY, OPENAI_API_KEY, "
-                "ANTHROPIC_API_KEY, or pass one in apiKeys). Returning empty response.",
+                "No LLM provider key configured (set GROQ_API_KEY, GEMINI_API_KEY, "
+                "OPENAI_API_KEY, ANTHROPIC_API_KEY, or pass one in apiKeys). "
+                "Returning empty response.",
                 "error"
             )
             return ""

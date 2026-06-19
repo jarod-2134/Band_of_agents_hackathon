@@ -12,12 +12,24 @@ from models import AgentActionLog, Commit
 def generate_id():
     return str(uuid.uuid4())[:8]
 
-def run_cmd(cmd):
+def run_cmd(cmd, cwd=None):
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=os.getcwd())
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd or os.getcwd())
         return result.stdout + result.stderr
     except Exception as e:
         return str(e)
+
+def repo_dir_for(org_slug: str) -> str:
+    """Resolve the on-disk repo directory for an org/repo id, creating it if missing."""
+    base = os.path.join(os.path.dirname(os.path.dirname(__file__)), "repos", org_slug)
+    os.makedirs(base, exist_ok=True)
+    return base
+
+def resolve_repo_path(org_slug: str, raw_path: str) -> str:
+    """Anchor an LLM-emitted file path inside the repo dir and normalize it safely."""
+    # Strip any leading slashes/separators so it can't escape the repo root.
+    clean = raw_path.replace("\\", "/").lstrip("./").lstrip("/")
+    return os.path.join(repo_dir_for(org_slug), clean)
 
 class HeadAgent(BaseAgent):
     def __init__(self, name: str, org_slug: str, instructions: str = "", api_keys: dict = None):
@@ -104,22 +116,26 @@ class EngineerAgent(BaseAgent):
             # Parse <write path="...">...</write>
             writes = re.finditer(r'<write\s+path="([^"]+)">\s*(.*?)\s*</write>', response, re.DOTALL)
             files_changed = 0
+            repo_cwd = repo_dir_for(self.org_slug)
             for match in writes:
-                path = match.group(1)
+                raw_path = match.group(1)
                 content = match.group(2)
                 try:
-                    os.makedirs(os.path.dirname(path), exist_ok=True)
-                    with open(path, 'w', encoding='utf-8') as f:
+                    abs_path = resolve_repo_path(self.org_slug, raw_path)
+                    parent = os.path.dirname(abs_path)
+                    if parent:
+                        os.makedirs(parent, exist_ok=True)
+                    with open(abs_path, 'w', encoding='utf-8') as f:
                         f.write(content)
-                    await self.log(f"Created/Modified file: {path}", "action")
+                    await self.log(f"Created/Modified file: {raw_path}", "action")
                     files_changed += 1
                 except Exception as e:
-                    await self.log(f"Failed to write {path}: {e}", "error")
-            
+                    await self.log(f"Failed to write {raw_path}: {e}", "error")
+
             if files_changed > 0:
                 await self.log("Committing changes to git...", "action")
-                run_cmd("git add .")
-                run_cmd('git commit -m "Engineer: Completed task implementation"')
+                run_cmd("git add .", cwd=repo_cwd)
+                run_cmd('git commit -m "Engineer: Completed task implementation"', cwd=repo_cwd)
             else:
                 await self.log("No files were written based on the LLM output.", "error")
 
@@ -135,8 +151,9 @@ class ReviewerAgent(BaseAgent):
         msg = message.get("message")
         if isinstance(msg, dict) and msg.get("cmd") == "review_work":
             await self.log("Pulling git diff to review changes...", "thought")
-            
-            diff = run_cmd("git show HEAD") # gets the last commit (which the engineer just made)
+
+            repo_cwd = repo_dir_for(self.org_slug)
+            diff = run_cmd("git show HEAD", cwd=repo_cwd) # last commit the engineer made
             
             if not diff or "fatal" in diff:
                 await self.log("No git history found or not a git repo.", "error")
