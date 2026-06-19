@@ -11,6 +11,24 @@ export default defineConfig({
     },
   },
   server: {
-    allowedHosts: true // Allows your ngrok tunnel to safely bypass the host check
-  }
+    allowedHosts: true, // Allows ngrok tunnels to pass the host check
+    proxy: {
+      // Forward all /api calls to the local backend
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      // Forward all /orgs calls to the local backend
+      '/orgs': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      // Forward WebSocket connections to the local backend
+      '/ws': {
+        target: 'ws://localhost:8000',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
+  },
 })

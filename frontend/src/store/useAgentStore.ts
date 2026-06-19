@@ -149,8 +149,17 @@ interface AgentState {
   stopDemoSession: () => void;
 }
 
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+// If VITE_API_URL is set, use it. Otherwise use relative URLs that go through the Vite proxy.
+// This makes the app work via localhost, ngrok, or any other tunnel without changing .env.
+export const API_URL = import.meta.env.VITE_API_URL || '';
+// For WebSockets, we must derive an absolute URL from the current window host.
+// ws:// for http://, wss:// for https://.
+function getWsBase(): string {
+  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}`;
+}
+export const WS_URL = getWsBase();
 
 let ws: WebSocket | null = null;
 
