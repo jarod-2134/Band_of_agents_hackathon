@@ -139,6 +139,9 @@ interface AgentState {
   stopDemoSession: () => void;
 }
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+
 let ws: WebSocket | null = null;
 
 export const useAgentStore = create<AgentState>()(
@@ -178,7 +181,7 @@ export const useAgentStore = create<AgentState>()(
       fetchRepos: async () => {
         const { currentOrgSlug, currentRepoId, connectWebSocket } = get();
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`);
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos`);
           const data = await res.json();
           const repos = data.repositories || [];
           set({ repos });
@@ -208,7 +211,7 @@ export const useAgentStore = create<AgentState>()(
         const repo = repos.find((r) => r.fs_path === repoId);
         const actualRepoId = repo ? repo.id : repoId;
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`);
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`);
           const data = await res.json();
           const branches = data.branches || [];
           set({ branches });
@@ -230,7 +233,7 @@ export const useAgentStore = create<AgentState>()(
         const repo = repos.find((r) => r.fs_path === currentRepoId);
         const actualRepoId = repo ? repo.id : currentRepoId;
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`, {
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, source_branch: sourceBranch })
@@ -256,7 +259,7 @@ export const useAgentStore = create<AgentState>()(
         const repo = repos.find((r) => r.fs_path === currentRepoId);
         const actualRepoId = repo ? repo.id : currentRepoId;
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/${name}`, {
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/${name}`, {
             method: 'DELETE'
           });
           
@@ -283,7 +286,7 @@ export const useAgentStore = create<AgentState>()(
         const actualRepoId = repo ? repo.id : currentRepoId;
 
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge`, {
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source_branch: sourceBranch, target_branch: targetBranch })
@@ -317,7 +320,7 @@ export const useAgentStore = create<AgentState>()(
         const actualRepoId = repo ? repo.id : currentRepoId;
 
         try {
-          const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge/resolve`, {
+          const res = await fetch(`${API_URL}/orgs/${currentOrgSlug}/repos/${actualRepoId}/branches/merge/resolve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -354,7 +357,7 @@ export const useAgentStore = create<AgentState>()(
       fetchFileTree: async (repoId: string) => {
         const { currentBranch } = get();
         try {
-          const res = await fetch(`http://localhost:8000/api/repos/${repoId}/files?branch=${currentBranch}`);
+          const res = await fetch(`${API_URL}/api/repos/${repoId}/files?branch=${currentBranch}`);
           const data = await res.json();
           set({ fileTree: data.files || [] });
         } catch (e) {
@@ -374,7 +377,7 @@ export const useAgentStore = create<AgentState>()(
           ws.close();
         }
 
-        ws = new WebSocket(`ws://localhost:8000/ws/${currentOrgSlug}/${repoId}`);
+        ws = new WebSocket(`${WS_URL}/ws/${currentOrgSlug}/${repoId}`);
 
         ws.onopen = () => {
           set({ isConnected: true });
