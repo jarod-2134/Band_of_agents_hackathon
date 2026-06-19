@@ -54,6 +54,7 @@ class CodeNode(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     repo_id = Column(String, index=True)
+    branch = Column(String, index=True, default="main")
     file_path = Column(String, index=True, nullable=False)
     content = Column(Text, nullable=False)
     embedding = Column(Vector(768))  # Assuming 768 dims for distilbert
@@ -96,6 +97,7 @@ class EntityNode(Base):
     __tablename__ = "entity_nodes"
     id = Column(Integer, primary_key=True, index=True)
     repo_id = Column(String, index=True, nullable=False)
+    branch = Column(String, index=True, default="main")
     file_path = Column(String, index=True)
     node_type = Column(String, index=True) 
     name = Column(String, index=True)
@@ -104,6 +106,7 @@ class EntityEdge(Base):
     __tablename__ = "entity_edges"
     id = Column(Integer, primary_key=True, index=True)
     repo_id = Column(String, index=True, nullable=False)
+    branch = Column(String, index=True, default="main")
     source_id = Column(Integer, index=True)
     target_id = Column(Integer, index=True)
     relation_type = Column(String, index=True)

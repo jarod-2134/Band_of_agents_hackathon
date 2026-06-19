@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAgentStore } from '@/store/useAgentStore';
 import { Database, Plus, Trash2 } from 'lucide-react';
 import { CloneRepoModal } from './CloneRepoModal';
+import { BranchSelector } from './BranchSelector';
 
 export function RepoSelector() {
   const repos = useAgentStore((state) => state.repos);
@@ -12,6 +13,7 @@ export function RepoSelector() {
   const fetchRepos = useAgentStore((state) => state.fetchRepos);
   
   const [showCloneModal, setShowCloneModal] = useState(false);
+  const [confirmDeleteRepoId, setConfirmDeleteRepoId] = useState<string | null>(null);
 
   return (
     <div className="flex items-center gap-4">
@@ -44,22 +46,32 @@ export function RepoSelector() {
           <button 
             onClick={() => {
               const repo = repos.find(r => r.fs_path === currentRepoId);
-              if (repo && window.confirm(`Are you sure you want to delete ${repo.name}?`)) {
-                fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}`, { method: 'DELETE' })
-                  .then(() => {
-                    connectWebSocket('');
-                    return fetchRepos();
-                  })
-                  .catch(err => console.error("Failed to delete repo", err));
+              if (!repo) return;
+              if (confirmDeleteRepoId !== repo.id) {
+                setConfirmDeleteRepoId(repo.id);
+                return;
               }
+              
+              fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos/${repo.id}`, { method: 'DELETE' })
+                .then(() => {
+                  setConfirmDeleteRepoId(null);
+                  connectWebSocket('');
+                  return fetchRepos();
+                })
+                .catch(err => {
+                  console.error("Failed to delete repo", err);
+                  setConfirmDeleteRepoId(null);
+                });
             }}
-            className="text-muted-foreground hover:text-destructive transition-colors p-1"
-            title="Delete Repository"
+            className={`transition-colors p-1 ${confirmDeleteRepoId ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
+            title={confirmDeleteRepoId ? "Click again to confirm delete" : "Delete Repository"}
           >
             <Trash2 className="w-4 h-4" />
           </button>
         )}
       </div>
+
+      <BranchSelector />
 
       <div className="flex items-center gap-2 text-sm bg-card px-2 py-1 rounded-md border border-border">
         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />

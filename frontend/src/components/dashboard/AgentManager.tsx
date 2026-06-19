@@ -7,6 +7,13 @@ export function AgentManager() {
   const [agents, setAgents] = useState<any[]>([]);
   const [newName, setNewName] = useState('');
   const [newModel, setNewModel] = useState('gpt-4o');
+  const [statusMessage, setStatusMessage] = useState<{text: string, type: 'error'|'success'} | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  const showStatus = (text: string, type: 'error'|'success') => {
+    setStatusMessage({text, type});
+    setTimeout(() => setStatusMessage(null), 4000);
+  };
 
   const fetchAgents = () => {
     fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents`)
@@ -61,20 +68,26 @@ export function AgentManager() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Delete this agent?')) return;
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      return;
+    }
     try {
       await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents/${id}`, {
         method: 'DELETE'
       });
+      setConfirmDeleteId(null);
+      showStatus('Agent deleted', 'success');
       fetchAgents();
     } catch (err) {
       console.error(err);
+      setConfirmDeleteId(null);
+      showStatus('Failed to delete agent', 'error');
     }
   };
 
   const handleAssignTask = async (id: number) => {
-    const taskId = prompt("Enter Task ID (UUID):", crypto.randomUUID());
-    if (!taskId) return;
+    const taskId = crypto.randomUUID();
     try {
       const res = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/agents/${id}/assign`, {
         method: 'POST',
@@ -82,11 +95,11 @@ export function AgentManager() {
         body: JSON.stringify({ issue_id: taskId })
       });
       if (res.ok) {
-        alert("Task assigned successfully!");
+        showStatus("Task assigned successfully!", 'success');
         fetchAgents();
       } else {
         const err = await res.json();
-        alert(`Failed: ${err.detail || 'Unknown error'}`);
+        showStatus(`Failed: ${err.detail || 'Unknown error'}`, 'error');
       }
     } catch (err) {
       console.error(err);
@@ -104,6 +117,12 @@ export function AgentManager() {
           Manage your autonomous agents, start/stop them, and assign tasks.
         </p>
       </div>
+
+      {statusMessage && (
+        <div className={`px-4 py-2 text-sm border-b font-medium flex items-center justify-center ${statusMessage.type === 'error' ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-green-500/10 text-green-500 border-green-500/20'}`}>
+          {statusMessage.text}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
         {/* Create Form */}
@@ -141,8 +160,8 @@ export function AgentManager() {
             <div key={agent.id} className="bg-card border border-border rounded-lg p-4 flex flex-col shadow-sm relative group">
               <button 
                 onClick={() => handleDelete(agent.id)}
-                className="absolute top-4 right-4 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Delete Agent"
+                className={`absolute top-4 right-4 transition-opacity ${confirmDeleteId === agent.id ? 'text-destructive opacity-100' : 'text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100'}`}
+                title={confirmDeleteId === agent.id ? "Click again to confirm" : "Delete Agent"}
               >
                 <Trash2 className="w-4 h-4" />
               </button>

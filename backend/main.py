@@ -170,21 +170,23 @@ async def websocket_endpoint(websocket: WebSocket, org_slug: str, repo_id: str):
                 if payload.get("type") == "start_manager":
                     instructions = payload.get("instructions", "")
                     api_keys = payload.get("apiKeys", {})
+                    branch = payload.get("branch", "main")
                     
                     # Initialize the Corporate Structure on demand
                     ceo = HeadAgent("AI CEO", org_slug=repo_id, instructions=instructions, api_keys=api_keys)
+                    ceo.branch = branch
                     ceo.set_log_callback(handle_agent_log)
                     registry.register(repo_id, ceo)
                     asyncio.create_task(ceo.run())
                     
                     await manager.broadcast(repo_id, json.dumps({
                         "type": "log",
-                        "payload": f"Corporate simulation started with instructions: {instructions}",
+                        "payload": f"Corporate simulation started with instructions: {instructions} on branch: {branch}",
                         "logType": "info"
                     }))
                     
                     # Trigger the CEO
-                    await ceo.inbox.put({"message": "start", "instructions": instructions})
+                    await ceo.inbox.put({"message": "start", "instructions": instructions, "branch": branch})
             except json.JSONDecodeError:
                 pass
             
@@ -245,7 +247,7 @@ def build_file_tree_from_git(repo_path: str, tree, rel_path: str = ""):
     return result
 
 @app.get("/api/repos/{repo_id}/files")
-async def get_repo_files(repo_id: str):
+async def get_repo_files(repo_id: str, branch: str = "main"):
     repo_path = os.path.join(REPOS_DIR, repo_id)
     if not os.path.exists(repo_path):
         os.makedirs(repo_path, exist_ok=True)
@@ -258,8 +260,16 @@ async def get_repo_files(repo_id: str):
         repo = pygit2.Repository(repo_path)
         if repo.is_empty:
             return {"files": []}
-        head = repo.head
-        commit = repo.get(head.target)
+            
+        try:
+            branch_ref = repo.branches.local.get(branch)
+            if not branch_ref:
+                raise ValueError("Branch not found")
+            commit = repo.get(branch_ref.target)
+        except Exception:
+            head = repo.head
+            commit = repo.get(head.target)
+            
         file_tree = build_file_tree_from_git(repo_path, commit.tree)
         return {"files": file_tree}
     except Exception as e:
@@ -268,15 +278,22 @@ async def get_repo_files(repo_id: str):
         return {"files": tree}
 
 @app.get("/api/repos/{repo_id}/file/{filepath:path}")
-async def get_repo_file(repo_id: str, filepath: str):
+async def get_repo_file(repo_id: str, filepath: str, branch: str = "main"):
     repo_path = os.path.join(REPOS_DIR, repo_id)
     
     try:
         import pygit2
         repo = pygit2.Repository(repo_path)
         if not repo.is_empty:
-            head = repo.head
-            commit = repo.get(head.target)
+            try:
+                branch_ref = repo.branches.local.get(branch)
+                if not branch_ref:
+                    raise ValueError("Branch not found")
+                commit = repo.get(branch_ref.target)
+            except Exception:
+                head = repo.head
+                commit = repo.get(head.target)
+                
             current = commit.tree
             parts = filepath.replace("\\", "/").strip("/").split("/")
             for part in parts:

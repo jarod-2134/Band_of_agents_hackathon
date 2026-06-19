@@ -102,24 +102,24 @@ class SemanticIndexingService:
             async with AsyncSessionLocal() as session:
                 # 1. Clean old vector code nodes
                 await session.execute(
-                    delete(CodeNode).where(CodeNode.repo_id == repo_id).where(CodeNode.file_path == filepath)
+                    delete(CodeNode).where(CodeNode.repo_id == repo_id).where(CodeNode.branch == branch).where(CodeNode.file_path == filepath)
                 )
-                node = CodeNode(repo_id=repo_id, file_path=filepath, content=content, embedding=embedding_str)
+                node = CodeNode(repo_id=repo_id, branch=branch, file_path=filepath, content=content, embedding=embedding_str)
                 session.add(node)
                 
                 # 2. Clean old graph nodes
                 await session.execute(
-                    delete(EntityNode).where(EntityNode.repo_id == repo_id).where(EntityNode.file_path == filepath)
+                    delete(EntityNode).where(EntityNode.repo_id == repo_id).where(EntityNode.branch == branch).where(EntityNode.file_path == filepath)
                 )
                 
                 # Create root file node
-                file_node = EntityNode(repo_id=repo_id, file_path=filepath, node_type="file", name=filepath.split('/')[-1])
+                file_node = EntityNode(repo_id=repo_id, branch=branch, file_path=filepath, node_type="file", name=filepath.split('/')[-1])
                 session.add(file_node)
                 await session.flush() # get id
                 
                 # Add AST entities
                 for ent in ast_entities:
-                    child_node = EntityNode(repo_id=repo_id, file_path=filepath, node_type=ent["type"], name=ent["name"])
+                    child_node = EntityNode(repo_id=repo_id, branch=branch, file_path=filepath, node_type=ent["type"], name=ent["name"])
                     session.add(child_node)
                     await session.flush()
                     
@@ -127,7 +127,7 @@ class SemanticIndexingService:
                     if ent["type"] == "import":
                         edge_type = "IMPORTS"
                         
-                    edge = EntityEdge(repo_id=repo_id, source_id=file_node.id, target_id=child_node.id, relation_type=edge_type)
+                    edge = EntityEdge(repo_id=repo_id, branch=branch, source_id=file_node.id, target_id=child_node.id, relation_type=edge_type)
                     session.add(edge)
                 
                 await session.commit()
@@ -144,5 +144,15 @@ class SemanticIndexingService:
                 await session.commit()
         except Exception as e:
             logger.error(f"Failed to delete embeddings for repo {repo_id}: {e}")
+
+    async def delete_branch_embeddings(self, repo_id: str, branch: str):
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(delete(CodeNode).where(CodeNode.repo_id == repo_id).where(CodeNode.branch == branch))
+                await session.execute(delete(EntityEdge).where(EntityEdge.repo_id == repo_id).where(EntityEdge.branch == branch))
+                await session.execute(delete(EntityNode).where(EntityNode.repo_id == repo_id).where(EntityNode.branch == branch))
+                await session.commit()
+        except Exception as e:
+            logger.error(f"Failed to delete embeddings for branch {branch} in repo {repo_id}: {e}")
 
 semantic_indexer = SemanticIndexingService()

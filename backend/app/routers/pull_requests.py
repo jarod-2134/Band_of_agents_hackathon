@@ -147,7 +147,7 @@ async def request_changes(org_slug: str, repo_id: str, pr_id: int, db: Session =
 @router.post("/{pr_id}/merge")
 async def merge_pull_request(org_slug: str, repo_id: str, pr_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # Fetch repository context info
-    repo = db.execute(text("SELECT name FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
+    repo = db.execute(text("SELECT name, org_slug FROM repos WHERE id = :id"), {"id": repo_id}).mappings().first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository reference missing.")
 
@@ -181,7 +181,7 @@ async def merge_pull_request(org_slug: str, repo_id: str, pr_id: int, background
         base_commit = git_repo.get(base_ref.target)
 
         # Calculate merge index tracking mutations
-        merge_index = git_repo.merge_trees(base_commit, head_commit)
+        merge_index = git_repo.merge_commits(base_commit, head_commit)
         
         if merge_index.conflicts:
             raise HTTPException(status_code=400, detail="Merge conflict detected. Automated engine aborted.")
@@ -206,9 +206,31 @@ async def merge_pull_request(org_slug: str, repo_id: str, pr_id: int, background
     # Transactional Application State Management Actions
     try:
         # Step 3: Create a merge commit row
+        commit_embedding = semantic_indexer.encode_text(merge_message)
         db.execute(
-            text("INSERT INTO commits (repo_id, sha, message, branch) VALUES (:repo_id, :sha, :msg, :branch)"),
-            {"repo_id": repo_id, "sha": str(merge_commit_sha), "msg": merge_message, "branch": pr['base_branch']}
+            text("""
+                INSERT INTO commits (
+                    sha, org_slug, repo_id, message, author_name, 
+                    author_email, branch, parent_shas, files_changed, 
+                    insertions, deletions, committed_at, embedding
+                ) VALUES (
+                    :sha, :org_slug, :repo_id, :msg, :author_name, 
+                    :author_email, :branch, :parent_shas, 0, 
+                    0, 0, :committed_at, :embedding
+                )
+            """),
+            {
+                "org_slug": repo["org_slug"],
+                "repo_id": repo_id, 
+                "sha": str(merge_commit_sha), 
+                "msg": merge_message, 
+                "author_name": author.name,
+                "author_email": author.email,
+                "branch": pr['base_branch'],
+                "parent_shas": json.dumps([str(base_commit.id), str(head_commit.id)]),
+                "committed_at": datetime.now(timezone.utc),
+                "embedding": commit_embedding
+            }
         )
 
         # Step 4: Update branch status to merged (Updating the PR status)

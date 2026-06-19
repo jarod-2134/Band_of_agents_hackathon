@@ -35,6 +35,19 @@ class BranchCreatePayload(BaseModel):
 class BranchProtectPayload(BaseModel):
     protected: bool
 
+class BranchMergePayload(BaseModel):
+    source_branch: str
+    target_branch: str
+
+class ResolvedFileSchema(BaseModel):
+    path: str
+    content: str
+
+class BranchMergeResolvePayload(BaseModel):
+    source_branch: str
+    target_branch: str
+    resolved_files: List[ResolvedFileSchema]
+
 class AuthorSchema(BaseModel):
     name: str
     email: str
@@ -558,7 +571,7 @@ async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayloa
     except Exception as e:
         await db.rollback()
         logger.error(f"Failed database mirror registration for branch {payload.name}: {e}")
-        raise HTTPException(status_code=500, detail="Database tracking state registration failed.")
+        raise HTTPException(status_code=500, detail=f"Database tracking state registration failed: {e}")
     
 
 @router.get("/{repo_id}/branches/{branch_name:path}")
@@ -574,7 +587,7 @@ async def get_branch_details(org_slug: str, repo_id: str, branch_name: str, db: 
 
 
 @router.delete("/{repo_id}/branches/{branch_name:path}")
-async def delete_branch(org_slug: str, repo_id: str, branch_name: str, db: Session = Depends(get_db)):
+async def delete_branch(org_slug: str, repo_id: str, branch_name: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # Hard guard enforcement at API layer before disk mutations are touched
     is_protected_proxy = await db.execute(
         text("SELECT protected FROM branches WHERE repo_id = :repo_id AND name = :name"),
@@ -608,9 +621,185 @@ async def delete_branch(org_slug: str, repo_id: str, branch_name: str, db: Sessi
             {"repo_id": repo_id, "name": branch_name}
         )
         await db.commit()
+        
+        # Clean up semantic nodes for this branch in the background
+        background_tasks.add_task(semantic_indexer.delete_branch_embeddings, repo_id, branch_name)
+        
         return {"status": "deleted", "branch": branch_name}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Branch not found on storage fabric: {e}")
+
+@router.post("/{repo_id}/branches/merge")
+async def merge_branch(org_slug: str, repo_id: str, payload: BranchMergePayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"),
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Parent repository missing.")
+
+    repo_path = resolve_repo_disk_path(org_slug, repo["name"])
+    
+    try:
+        git_repo = pygit2.Repository(repo_path)
+        head_ref = git_repo.lookup_reference(f"refs/heads/{payload.source_branch}")
+        base_ref = git_repo.lookup_reference(f"refs/heads/{payload.target_branch}")
+        
+        head_commit = git_repo.get(head_ref.target)
+        base_commit = git_repo.get(base_ref.target)
+
+        merge_index = git_repo.merge_commits(base_commit, head_commit)
+        if merge_index.conflicts:
+            conflict_files = []
+            for ancestor, ours, theirs in merge_index.conflicts:
+                conflict_content = git_repo.merge_file_from_index(ancestor, ours, theirs, use_deprecated=True)
+                path = ours.path if ours else theirs.path
+                conflict_files.append({"path": path, "content": conflict_content})
+            raise HTTPException(status_code=409, detail={"message": "Merge conflict detected.", "conflict_files": conflict_files})
+
+        tree_oid = merge_index.write_tree(git_repo)
+        author = pygit2.Signature("User Agent", "user@mesh.internal")
+        committer = pygit2.Signature("User Agent", "user@mesh.internal")
+        merge_message = f"Merge branch '{payload.source_branch}' into '{payload.target_branch}'"
+        
+        merge_commit_sha = git_repo.create_commit(
+            f"refs/heads/{payload.target_branch}",
+            author, committer, merge_message,
+            tree_oid, [base_commit.id, head_commit.id]
+        )
+        
+        # Add commit to db
+        commit_embedding = semantic_indexer.encode_text(merge_message)
+        await db.execute(
+            text("""
+                INSERT INTO commits (
+                    sha, org_slug, repo_id, message, author_name, 
+                    author_email, branch, parent_shas, files_changed, 
+                    insertions, deletions, committed_at, embedding
+                ) VALUES (
+                    :sha, :org_slug, :repo_id, :msg, :author_name, 
+                    :author_email, :branch, :parent_shas, 0, 
+                    0, 0, :committed_at, :embedding
+                )
+            """),
+            {
+                "org_slug": org_slug,
+                "repo_id": repo_id, 
+                "sha": str(merge_commit_sha), 
+                "msg": merge_message, 
+                "author_name": author.name,
+                "author_email": author.email,
+                "branch": payload.target_branch,
+                "parent_shas": json.dumps([str(base_commit.id), str(head_commit.id)]),
+                "committed_at": datetime.now(timezone.utc),
+                "embedding": commit_embedding
+            }
+        )
+        await db.commit()
+        
+        # Background index task
+        if hasattr(semantic_indexer, "index_file_change"):
+            diff = git_repo.diff(base_commit, head_commit)
+            for patch in diff:
+                file_path = patch.delta.new_file.path
+                try:
+                    blob = git_repo.get(patch.delta.new_file.id)
+                    if blob and not blob.is_binary:
+                        background_tasks.add_task(
+                            semantic_indexer.index_file_change,
+                            str(repo_id), payload.target_branch, file_path, blob.data.decode('utf-8', errors='ignore')
+                        )
+                except Exception as index_err:
+                    logger.error(f"Failed parsing file {file_path}: {index_err}")
+                    
+        return {"status": "merged", "merge_commit_sha": str(merge_commit_sha)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Merge error: {e}")
+        raise HTTPException(status_code=500, detail=f"Merge sequence failed: {e}")
+
+@router.post("/{repo_id}/branches/merge/resolve")
+async def resolve_merge_conflict(org_slug: str, repo_id: str, payload: BranchMergeResolvePayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    repo_proxy = await db.execute(
+        text("SELECT name FROM repos WHERE id = :id AND org_slug = :org_slug"),
+        {"id": repo_id, "org_slug": org_slug}
+    )
+    repo = repo_proxy.mappings().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Parent repository missing.")
+
+    repo_path = resolve_repo_disk_path(org_slug, repo["name"])
+    
+    try:
+        git_repo = pygit2.Repository(repo_path)
+        head_ref = git_repo.lookup_reference(f"refs/heads/{payload.source_branch}")
+        base_ref = git_repo.lookup_reference(f"refs/heads/{payload.target_branch}")
+        
+        head_commit = git_repo.get(head_ref.target)
+        base_commit = git_repo.get(base_ref.target)
+
+        merge_index = git_repo.merge_commits(base_commit, head_commit)
+        
+        # Apply resolutions
+        for resolved_file in payload.resolved_files:
+            # Create a new blob with the resolved content
+            blob_id = git_repo.create_blob(resolved_file.content)
+            # Add to the index to clear the conflict
+            entry = pygit2.IndexEntry(resolved_file.path, blob_id, pygit2.GIT_FILEMODE_BLOB)
+            merge_index.add(entry)
+            
+        if merge_index.conflicts:
+            raise HTTPException(status_code=400, detail="Not all conflicts have been resolved.")
+
+        tree_oid = merge_index.write_tree(git_repo)
+        author = pygit2.Signature("User Agent", "user@mesh.internal")
+        committer = pygit2.Signature("User Agent", "user@mesh.internal")
+        merge_message = f"Merge branch '{payload.source_branch}' into '{payload.target_branch}'"
+        
+        merge_commit_sha = git_repo.create_commit(
+            f"refs/heads/{payload.target_branch}",
+            author, committer, merge_message,
+            tree_oid, [base_commit.id, head_commit.id]
+        )
+        
+        # Add commit to db
+        commit_embedding = semantic_indexer.encode_text(merge_message)
+        await db.execute(
+            text("""
+                INSERT INTO commits (
+                    sha, org_slug, repo_id, message, author_name, 
+                    author_email, branch, parent_shas, files_changed, 
+                    insertions, deletions, committed_at, embedding
+                ) VALUES (
+                    :sha, :org_slug, :repo_id, :msg, :author_name, 
+                    :author_email, :branch, :parent_shas, 0, 
+                    0, 0, :committed_at, :embedding
+                )
+            """),
+            {
+                "org_slug": org_slug,
+                "repo_id": repo_id, 
+                "sha": str(merge_commit_sha), 
+                "msg": merge_message, 
+                "author_name": author.name,
+                "author_email": author.email,
+                "branch": payload.target_branch,
+                "parent_shas": json.dumps([str(base_commit.id), str(head_commit.id)]),
+                "committed_at": datetime.now(timezone.utc),
+                "embedding": commit_embedding
+            }
+        )
+        await db.commit()
+        
+        return {"status": "resolved_and_merged", "merge_commit_sha": str(merge_commit_sha)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Merge resolve error: {e}")
+        raise HTTPException(status_code=500, detail=f"Merge resolution failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Merge failed: {e}")
 
 
 @router.patch("/{repo_id}/branches/{branch_name:path}/protect")
@@ -826,7 +1015,45 @@ async def agent_create_commit(org_slug: str, repo_id: str, payload: CommitPayloa
             author, committer, payload.message, 
             tree_oid, parent_commits
         )
+        
+        # 3. Synchronize new physical commit into the relational database tracking model
+        commit_embedding = semantic_indexer.encode_text(payload.message)
+        await db.execute(
+            text("""
+                INSERT INTO commits (
+                    sha, org_slug, repo_id, message, author_name, 
+                    author_email, branch, parent_shas, files_changed, 
+                    insertions, deletions, committed_at, embedding
+                ) VALUES (
+                    :sha, :org_slug, :repo_id, :msg, :author_name, 
+                    :author_email, :branch, :parent_shas, :files_changed, 
+                    0, 0, :committed_at, :embedding
+                )
+            """),
+            {
+                "org_slug": org_slug,
+                "repo_id": repo_id, 
+                "sha": str(new_commit_sha), 
+                "msg": payload.message, 
+                "author_name": author.name,
+                "author_email": author.email,
+                "branch": payload.branch,
+                "parent_shas": json.dumps([str(p) for p in parent_commits]),
+                "files_changed": len(payload.files),
+                "committed_at": datetime.now(timezone.utc),
+                "embedding": json.dumps(commit_embedding)
+            }
+        )
+        
+        # 4. Advance the branch head_sha pointer to the new commit
+        await db.execute(
+            text("UPDATE branches SET head_sha = :head_sha WHERE repo_id = :repo_id AND name = :name"),
+            {"head_sha": str(new_commit_sha), "repo_id": repo_id, "name": payload.branch}
+        )
+        await db.commit()
+        
     except Exception as e:
+        await db.rollback()
         logger.error(f"Native core engine write failure: {e}")
         raise HTTPException(status_code=500, detail=f"Git engine operation failed: {str(e)}")
 

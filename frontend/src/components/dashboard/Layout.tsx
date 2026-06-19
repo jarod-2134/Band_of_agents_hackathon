@@ -3,13 +3,14 @@ import { useAgentStore } from '@/store/useAgentStore';
 import { GitBranch, LayoutDashboard, Settings, BarChart3, History, Network, Bot } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { RepoSelector } from './RepoSelector';
+import { ConflictResolver } from './ConflictResolver';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
-  const { fetchRepos, disconnectWebSocket } = useAgentStore();
+  const { fetchRepos, disconnectWebSocket, conflictFiles } = useAgentStore();
 
   useEffect(() => {
     fetchRepos();
@@ -96,8 +97,8 @@ export function Layout({ children }: LayoutProps) {
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-background">
-          {children}
+        <div className="flex-1 flex flex-col overflow-hidden bg-background relative">
+          {conflictFiles && conflictFiles.length > 0 ? <ConflictResolver /> : children}
         </div>
         
       </div>

@@ -3,7 +3,7 @@ import { useAgentStore, type FileNode } from '@/store/useAgentStore';
 import { GraphViewer } from './GraphViewer';
 import { DiffViewer } from './DiffViewer';
 import { LogTerminal } from './LogTerminal';
-import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3 } from 'lucide-react';
+import { Folder, File, Code, Bot, ChevronDown, ChevronRight, Clock3, Database } from 'lucide-react';
 
 const mockDiffs: Record<string, { original: string; modified: string }> = {
   'frontend/src/Login.tsx': {
@@ -140,7 +140,8 @@ export function Dashboard() {
   const setActiveTab = useAgentStore((state) => state.setActiveTab);
   const currentDiff = useAgentStore((state) => state.currentDiff);
   const setCurrentDiff = useAgentStore((state) => state.setCurrentDiff);
-  const [terminalOpen, setTerminalOpen] = useState(true);
+  const currentBranch = useAgentStore((state) => state.currentBranch);
+  const [terminalOpen, setTerminalOpen] = useState(false);
 
   const diffToDisplay = currentDiff || {
     filePath: 'frontend/src/Login.tsx',
@@ -174,7 +175,7 @@ export function Dashboard() {
                   modified: `// Loading ${node.name}...`,
                 });
 
-                fetch(`http://localhost:8000/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}`)
+                fetch(`http://localhost:8000/api/repos/${currentRepoId}/file/${encodeURIComponent(node.path)}?branch=${currentBranch}`)
                   .then((res) => {
                     if (!res.ok) throw new Error('Network response was not ok');
                     return res.json();
@@ -276,7 +277,19 @@ export function Dashboard() {
         </div>
 
         <div className="flex-1 min-h-0">
-          {activeTab === 'graph' ? <GraphViewer /> : <DiffViewer diff={diffToDisplay} />}
+          {!currentRepoId ? (
+            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground bg-card rounded-md border border-border">
+              <Database className="w-12 h-12 mb-4 opacity-20" />
+              <h3 className="text-lg font-semibold text-foreground">No Repository Selected</h3>
+              <p className="max-w-sm mt-2 text-sm">
+                Please create or select a repository from the top left dropdown to start working.
+              </p>
+            </div>
+          ) : activeTab === 'graph' ? (
+            <GraphViewer />
+          ) : (
+            <DiffViewer diff={diffToDisplay} />
+          )}
         </div>
 
         <div className={terminalOpen ? 'h-56 shrink-0' : 'h-11 shrink-0'}>

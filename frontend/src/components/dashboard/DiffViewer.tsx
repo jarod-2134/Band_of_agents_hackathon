@@ -31,6 +31,7 @@ export function DiffViewer({ diff }: DiffViewerProps) {
   const [content, setContent] = useState(diff.modified);
   const [isSaving, setIsSaving] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errorStatus, setErrorStatus] = useState<string | null>(null);
 
   useEffect(() => {
     setContent(diff.modified);
@@ -39,6 +40,7 @@ export function DiffViewer({ diff }: DiffViewerProps) {
   const handleSave = async () => {
     if (!currentOrgSlug || !currentRepoId) return;
     setIsSaving(true);
+    setErrorStatus(null);
     try {
       const r = await fetch(`http://localhost:8000/orgs/${currentOrgSlug}/repos`);
       const data = await r.json();
@@ -67,9 +69,10 @@ export function DiffViewer({ diff }: DiffViewerProps) {
       }
       setIsSuccess(true);
       setTimeout(() => setIsSuccess(false), 2000);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Error saving changes');
+      setErrorStatus(err.message || 'Error saving changes');
+      setTimeout(() => setErrorStatus(null), 4000);
     } finally {
       setIsSaving(false);
     }
@@ -101,7 +104,13 @@ export function DiffViewer({ diff }: DiffViewerProps) {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 bg-[#1e1e1e]">
+      {errorStatus && (
+        <div className="px-4 py-2 bg-destructive/10 text-destructive border-b border-destructive/20 text-sm font-medium flex items-center justify-center shrink-0">
+          {errorStatus}
+        </div>
+      )}
+
+      <div className="flex-1 bg-[#1e1e1e] relative">
         <Editor
           height="100%"
           theme="vs-dark"
