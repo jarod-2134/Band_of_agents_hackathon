@@ -9,9 +9,7 @@ from loguru import logger
 from database import get_db
 
 from agents.team import (
-    HeadAgent, ProductManager, ScrumMaster, Architect, DataEngineer,
-    BackendEngineer, FrontendEngineer, SecurityAuditor, PeerReviewer,
-    AutomationTester, InfrastructureEngineer, ReleaseManager
+    PlannerAgent, EngineerAgent, ReviewerAgent, TesterAgent
 )
 
 router = APIRouter(prefix="/orgs/{org_slug}/agents", tags=["Autonomous Agent Management"])
@@ -39,33 +37,17 @@ def spawn_agent_instance(db_agent: dict):
     api_keys = db_agent.get("api_keys", {})
 
     # Map names to their corresponding specialized roles
-    if "ceo" in name_lower or "head" in name_lower:
-        return HeadAgent(db_agent["name"], org_slug, instructions=system_prompt, api_keys=api_keys)
-    elif "product" in name_lower or "pm" in name_lower:
-        return ProductManager(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "scrum" in name_lower or "master" in name_lower:
-        return ScrumMaster(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "architect" in name_lower:
-        return Architect(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "data" in name_lower:
-        return DataEngineer(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "backend" in name_lower:
-        return BackendEngineer(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "frontend" in name_lower:
-        return FrontendEngineer(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "security" in name_lower or "auditor" in name_lower:
-        return SecurityAuditor(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "review" in name_lower:
-        return PeerReviewer(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "test" in name_lower:
-        return AutomationTester(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "infra" in name_lower or "devops" in name_lower:
-        return InfrastructureEngineer(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
-    elif "release" in name_lower:
-        return ReleaseManager(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
+    if "plan" in name_lower or "head" in name_lower or "pm" in name_lower or "master" in name_lower:
+        return PlannerAgent(db_agent["name"], org_slug, instructions=system_prompt, api_keys=api_keys)
+    elif "engineer" in name_lower or "develop" in name_lower or "architect" in name_lower:
+        return EngineerAgent(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
+    elif "review" in name_lower or "audit" in name_lower:
+        return ReviewerAgent(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
+    elif "test" in name_lower or "qa" in name_lower:
+        return TesterAgent(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
     
-    # Fallback to the Orchestrator
-    return HeadAgent(db_agent["name"], org_slug, instructions=system_prompt, api_keys=api_keys)
+    # Fallback to the Engineer
+    return EngineerAgent(db_agent["name"], org_slug, parent_id="system", api_keys=api_keys)
 
 
 # =============================================================================

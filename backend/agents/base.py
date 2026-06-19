@@ -1,14 +1,14 @@
 import asyncio
 import os
-from typing import Callable, Optional
-import litellm
+from typing import Callable, Optional, List
 from loguru import logger
 
 from band import Agent
-from band.adapters import GoogleADKAdapter # Swapped from AnthropicAdapter
+from band.adapters import GoogleADKAdapter
 from band.core.types import AdapterFeatures, Capability, Emit
 from band.runtime.types import ContactEventConfig, ContactEventStrategy
 from band.platform.event import ContactRequestReceivedEvent
+from band.runtime.custom_tools import CustomToolDef
 
 from agents.actions import AgentRole
 from database import AsyncSessionLocal
@@ -35,6 +35,10 @@ class BaseAgent:
         self.system_prompt = system_prompt
         self._init_band_context()
 
+    def get_tools(self) -> List[CustomToolDef]:
+        """Override in child classes to provide native Band AI tools."""
+        return []
+
     def _init_band_context(self):
         if not self.band_key:
             return
@@ -44,11 +48,12 @@ class BaseAgent:
             emit={Emit.EXECUTION}
         )
         
-        # Updated to GoogleAdapter to match the gemini-2.5-flash native schemas
+        # Pass native tools into the GoogleADKAdapter
         self.adapter = GoogleADKAdapter(
             model="gemini-2.5-flash",
             custom_section=self.system_prompt,
-            features=features
+            features=features,
+            additional_tools=self.get_tools()
         )
         
         self.band_agent = Agent.create(
@@ -62,7 +67,6 @@ class BaseAgent:
                 on_event=self._handle_band_contact_handshake,
                 broadcast_changes=True
             )
-
         )
 
     async def _handle_band_contact_handshake(self, event: ContactRequestReceivedEvent, tools) -> None:
@@ -88,6 +92,8 @@ class BaseAgent:
             async with AsyncSessionLocal() as session:
                 log_entry = AgentActionLog(
                     agent_id=self.id,
+                    org_slug=self.org_slug,
+                    agent_role=self.role,
                     action_type=action,
                     content=message
                 )
@@ -97,40 +103,13 @@ class BaseAgent:
             logger.error(f"Failed to commit log telemetry: {e}")
 
     async def send_message(self, target_agent, message: dict):
+        # We can still pass internal metadata via this simple queue,
+        # but the agent reasoning logic is now natively managed by Band.
         await target_agent.inbox.put({
             "from_id": self.id,
             "from_name": self.name,
             "message": message
         })
-
-    async def _call_llm(self, prompt: str, system_prompt: str = "") -> str:
-        kwargs = {
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.1
-        }
-        
-        # litellm requires the gemini/ prefix to target the Google API
-        model = "gemini/gemini-2.5-flash"
-
-        if self.band_key:
-            kwargs["api_key"] = self.band_key
-            kwargs["api_base"] = "https://app.band.ai/v1"
-            # If routing through Band proxy instead of litellm directly, drop the prefix
-            model = "gemini-2.5-flash" 
-        elif self.api_keys.get("gemini"):
-            kwargs["api_key"] = self.api_keys["gemini"]
-        elif os.getenv("GEMINI_API_KEY"):
-            kwargs["api_key"] = os.getenv("GEMINI_API_KEY")
-
-        try:
-            response = await litellm.acompletion(model=model, **kwargs)
-            return response.choices[0].message.content or ""
-        except Exception as e:
-            await self.log(f"LLM Context Processing Error: {e}", "error")
-            return ""
 
     async def process_message(self, message: dict):
         raise NotImplementedError
@@ -138,6 +117,7 @@ class BaseAgent:
     async def run(self):
         self.running = True
         if self.band_agent:
+            # Let Band handle the autonomous lifecycle natively
             asyncio.create_task(self.band_agent.run())
             
         while self.running:

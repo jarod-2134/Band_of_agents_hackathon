@@ -187,10 +187,10 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
         logger.error(f"Atomic step 1 failed: DB insertion exception: {e}")
         raise HTTPException(status_code=500, detail="Failed to register repository record.")
 
-    # Step 2: Initialize bare repo and generate a REAL physical root commit
+    # Step 2: Initialize repo and generate a REAL physical root commit
     try:
         os.makedirs(repo_path, exist_ok=True)
-        git_repo = pygit2.init_repository(repo_path, bare=True)
+        git_repo = pygit2.init_repository(repo_path, bare=False)
         
         # Craft a signature for the system agent
         author = pygit2.Signature('System Agent', 'system@mesh.internal')
@@ -215,6 +215,7 @@ async def create_repository(org_slug: str, payload: RepoCreatePayload, db: Sessi
         
         # Set HEAD to point directly to our newly populated main branch
         git_repo.set_head(f"refs/heads/{default_branch}")
+        git_repo.checkout_head()
         logger.info(f"Atomic step 2 complete: Bare repo created with real root commit: {actual_git_sha}")
         
     except Exception as e:
@@ -342,7 +343,7 @@ async def clone_repository(org_slug: str, payload: RepoClonePayload, db: Session
             credentials = pygit2.UserPass("x-access-token", payload.github_token)
             callbacks = pygit2.RemoteCallbacks(credentials=credentials)
         
-        git_repo = pygit2.clone_repository(payload.repo_url, repo_path, bare=True, callbacks=callbacks)
+        git_repo = pygit2.clone_repository(payload.repo_url, repo_path, bare=False, callbacks=callbacks)
         
         # Get actual default branch
         head_ref = git_repo.head
