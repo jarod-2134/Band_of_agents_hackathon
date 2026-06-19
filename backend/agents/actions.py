@@ -1,6 +1,8 @@
 from enum import Enum
 
 class AgentRole(str, Enum):
+    CEO = "ceo"
+    MANAGER = "manager"
     PLANNER = "planner"
     ENGINEER = "engineer"
     REVIEWER = "reviewer"

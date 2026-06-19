@@ -11,6 +11,11 @@ export function AgentManager() {
   const [statusMessage, setStatusMessage] = useState<{text: string, type: 'error'|'success'} | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
+  // Inline task-assignment prompt state
+  const [assignTargetId, setAssignTargetId] = useState<number | null>(null);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDesc, setTaskDesc] = useState('');
+
   const showStatus = (text: string, type: 'error'|'success') => {
     setStatusMessage({text, type});
     setTimeout(() => setStatusMessage(null), 4000);
@@ -88,22 +93,41 @@ export function AgentManager() {
     }
   };
 
-  const handleAssignTask = async (id: number) => {
-    const taskId = crypto.randomUUID();
+  const openAssignPrompt = (id: number) => {
+    setAssignTargetId(id);
+    setTaskTitle('');
+    setTaskDesc('');
+  };
+
+  const closeAssignPrompt = () => {
+    setAssignTargetId(null);
+    setTaskTitle('');
+    setTaskDesc('');
+  };
+
+  const handleAssignTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (assignTargetId === null) return;
     try {
-      const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${id}/assign`, {
+      const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/agents/${assignTargetId}/assign`, {
         method: 'POST',
-        body: JSON.stringify({ issue_id: taskId })
+        body: JSON.stringify({ title: taskTitle, description: taskDesc })
       });
       if (res.ok) {
-        showStatus("Task assigned successfully!", 'success');
+        const data = await res.json().catch(() => ({}));
+        const note = data.dispatched_to_live_agent === false
+          ? 'Task created (start the agent to dispatch it).'
+          : 'Task assigned successfully!';
+        showStatus(note, 'success');
         fetchAgents();
+        closeAssignPrompt();
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         showStatus(`Failed: ${err.detail || 'Unknown error'}`, 'error');
       }
     } catch (err) {
       console.error(err);
+      showStatus('Failed to assign task', 'error');
     }
   };
 
@@ -203,8 +227,8 @@ export function AgentManager() {
                     <Square className="w-3.5 h-3.5" /> Stop
                   </button>
                 )}
-                <button 
-                  onClick={() => handleAssignTask(agent.id)}
+                <button
+                  onClick={() => openAssignPrompt(agent.id)}
                   className="flex-1 flex items-center justify-center gap-2 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold rounded-md transition-colors"
                 >
                   <Send className="w-3.5 h-3.5" /> Task
@@ -219,6 +243,57 @@ export function AgentManager() {
           )}
         </div>
       </div>
+
+      {/* Inline task-assignment prompt */}
+      {assignTargetId !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={closeAssignPrompt}
+        >
+          <div
+            className="w-full max-w-md bg-card border border-border rounded-lg shadow-xl p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-foreground mb-1">Assign Task</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Describe what agent #{assignTargetId} should work on.
+            </p>
+            <form onSubmit={handleAssignTask} className="flex flex-col gap-3">
+              <input
+                type="text"
+                autoFocus
+                value={taskTitle}
+                onChange={(e) => setTaskTitle(e.target.value)}
+                placeholder="Task title (e.g. Add dark mode toggle)"
+                className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
+                required
+              />
+              <textarea
+                value={taskDesc}
+                onChange={(e) => setTaskDesc(e.target.value)}
+                placeholder="Description / instructions (optional)"
+                rows={3}
+                className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground resize-y"
+              />
+              <div className="flex justify-end gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={closeAssignPrompt}
+                  className="px-4 py-2 rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" /> Assign
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

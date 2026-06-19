@@ -153,19 +153,35 @@ class BaseAgent:
             ],
             "temperature": 0.1
         }
-        
-        # litellm requires the gemini/ prefix to target the Google API
-        model = "gemini/gemini-2.5-flash"
 
-        if self.band_key:
-            kwargs["api_key"] = self.band_key
-            kwargs["api_base"] = "https://app.band.ai/v1"
-            # If routing through Band proxy instead of litellm directly, drop the prefix
-            model = "gemini-2.5-flash" 
-        elif self.api_keys.get("gemini"):
-            kwargs["api_key"] = self.api_keys["gemini"]
-        elif os.getenv("GEMINI_API_KEY"):
-            kwargs["api_key"] = os.getenv("GEMINI_API_KEY")
+        # NOTE: Band (app.band.ai) is an agent-orchestration/mesh layer, NOT an
+        # LLM inference provider. Routing chat-completion calls through its URL
+        # as an OpenAI base_url fails (litellm then misroutes bare gemini names
+        # to Vertex AI -> "default credentials were not found"). We instead use
+        # whichever real LLM provider key is available, in priority order, with
+        # the litellm provider prefix that targets the right backend.
+        gemini_key = self.api_keys.get("gemini") or os.getenv("GEMINI_API_KEY")
+        openai_key = self.api_keys.get("openai") or os.getenv("OPENAI_API_KEY")
+        anthropic_key = self.api_keys.get("anthropic") or os.getenv("ANTHROPIC_API_KEY")
+
+        if gemini_key:
+            model = "gemini/gemini-2.5-flash"
+            kwargs["api_key"] = gemini_key
+        elif openai_key:
+            model = "openai/gpt-4o"
+            kwargs["api_key"] = openai_key
+        elif anthropic_key:
+            model = "anthropic/claude-3-5-sonnet-20241022"
+            kwargs["api_key"] = anthropic_key
+        else:
+            # No LLM provider configured. Log once so the operator knows the
+            # agents will run but produce no LLM output until a key is added.
+            await self.log(
+                "No LLM provider key configured (set GEMINI_API_KEY, OPENAI_API_KEY, "
+                "ANTHROPIC_API_KEY, or pass one in apiKeys). Returning empty response.",
+                "error"
+            )
+            return ""
 
         try:
             response = await litellm.acompletion(model=model, **kwargs)

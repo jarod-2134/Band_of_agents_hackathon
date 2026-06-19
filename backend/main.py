@@ -9,7 +9,7 @@ from loguru import logger
 import uvicorn
 import bcrypt
 
-from agents.registry import AgentRegistry
+from agents.registry import registry
 from agents.corporate import HeadAgent
 from app.services.semantic_index import semantic_indexer
 from app.core.logger import setup_app_logging
@@ -89,8 +89,6 @@ app.include_router(sprints_router)
 app.include_router(analytics_router)
 app.include_router(websockets_router)
 app.include_router(search_router)
-
-registry = AgentRegistry()
 
 class ConnectionManager:
     def __init__(self):

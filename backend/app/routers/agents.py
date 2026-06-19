@@ -25,7 +25,8 @@ class AgentUpdatePayload(BaseModel):
     status: Optional[str] = None
 
 class TaskAssignPayload(BaseModel):
-    issue_id: str
+    title: str
+    description: str = ""
 
 
 # --- Helper: Factory to map DB Agents to Python Classes ---
@@ -209,7 +210,7 @@ async def stop_agent_worker(org_slug: str, agent_id: int, db: AsyncSession = Dep
 async def assign_issue_task(org_slug: str, agent_id: int, payload: TaskAssignPayload, db: AsyncSession = Depends(get_db)):
     from main import registry
 
-    """Delegates tasks to agents using issue_id references over the BAND mesh."""
+    """Creates a real task row and delegates it to an agent's live inbox."""
 
     # 0. Verify the Agent exists in the database
     agent_proxy = await db.execute(
@@ -218,42 +219,56 @@ async def assign_issue_task(org_slug: str, agent_id: int, payload: TaskAssignPay
     )
     if not agent_proxy.mappings().first():
         raise HTTPException(
-            status_code=404, 
+            status_code=404,
             detail="Agent profile not found in database."
         )
-    
-    # 1. Verify the Agent is running in memory
-    live_agent = registry.get_agent(org_slug, str(agent_id))
-    if not live_agent:
-        raise HTTPException(
-            status_code=400, 
-            detail="Agent is not currently running. Hit the /start endpoint first."
-        )
 
-    # 2. Update Database Activity Tracking
+    # 1. Record the task in the existing `tasks` table and mark the agent busy.
+    #    (No `agent_tasks` table exists; `tasks` already has the right columns.)
+    result = await db.execute(
+        text("""
+            INSERT INTO tasks (repo_id, title, description, status, assignee_id)
+            VALUES (:repo_id, :title, :description, 'IN_PROGRESS', :assignee_id)
+            RETURNING id;
+        """),
+        {
+            "repo_id": org_slug,
+            "title": payload.title,
+            "description": payload.description,
+            "assignee_id": str(agent_id),
+        }
+    )
+    task_row = result.mappings().first()
+    task_id = task_row["id"] if task_row else None
+
     await db.execute(
         text("UPDATE agents SET operational_status = 'busy' WHERE id = :id"),
         {"id": agent_id}
     )
-    
-    await db.execute(
-        text("INSERT INTO agent_tasks (agent_id, issue_id, progress_status) VALUES (:agent_id, :issue_id, 'running')"),
-        {"agent_id": agent_id, "issue_id": payload.issue_id}
-    )
     await db.commit()
 
-    # 3. Inject the Task Directly into the Agent's Live Inbox
-    # Sending 'start' mimics the CEO bootstrap trigger present in your team.py file
-    try:
-        await live_agent.inbox.put({
-            "message": "start", 
-            "issue_id": payload.issue_id
-        })
-        logger.info(f"Routed task allocation for issue {payload.issue_id} directly to Agent {agent_id}'s memory inbox.")
-    except Exception as e:
-        logger.warning(f"Failed to inject task into agent queue: {e}")
+    # 2. If the agent is live in memory, inject the task into its inbox.
+    #    Sending 'start' mimics the bootstrap trigger handled by the agent's
+    #    process_message() (e.g. PlannerAgent uses `instructions`).
+    live_agent = registry.get_agent(org_slug, str(agent_id))
+    dispatched = False
+    if live_agent:
+        try:
+            await live_agent.inbox.put({
+                "message": "start",
+                "instructions": payload.description or payload.title,
+            })
+            dispatched = True
+            logger.info(f"Dispatched task '{payload.title}' (id={task_id}) to Agent {agent_id}'s inbox.")
+        except Exception as e:
+            logger.warning(f"Failed to inject task into agent queue: {e}")
 
-    return {"status": "assigned", "agent_id": agent_id, "issue_id": payload.issue_id}
+    return {
+        "status": "assigned",
+        "agent_id": agent_id,
+        "task_id": task_id,
+        "dispatched_to_live_agent": dispatched,
+    }
 
 
 @router.get("/{agent_id}/status", status_code=status.HTTP_200_OK)

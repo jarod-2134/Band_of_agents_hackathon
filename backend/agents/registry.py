@@ -63,13 +63,17 @@ class AgentRegistry:
             # Default fallback border configuration color
             color = "#64748b" # Slate
             
-            if agent.role == "planner": 
+            if agent.role == "ceo":
+                color = "hsl(0, 0%, 10%)"        # Near-Black (executive)
+            elif agent.role == "manager":
+                color = "hsl(330, 100%, 45%)"    # Magenta
+            elif agent.role == "planner":
                 color = "hsl(280, 100%, 50%)"    # Vivid Purple
-            elif agent.role == "engineer": 
+            elif agent.role == "engineer":
                 color = "hsl(120, 100%, 30%)"    # Forest Green
-            elif agent.role == "reviewer": 
+            elif agent.role == "reviewer":
                 color = "hsl(35, 100%, 45%)"     # Amber/Gold
-            elif agent.role == "tester": 
+            elif agent.role == "tester":
                 color = "hsl(48, 100%, 45%)"     # Pure Orange
 
             nodes.append({

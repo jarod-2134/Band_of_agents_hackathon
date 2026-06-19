@@ -143,6 +143,21 @@ export function Dashboard() {
   const setCurrentDiff = useAgentStore((state) => state.setCurrentDiff);
   const currentBranch = useAgentStore((state) => state.currentBranch);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  // Tracks which directory paths are collapsed. A path in the set is collapsed;
+  // absent means expanded. Top-level folders default to collapsed for a tidy tree.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const toggleFolder = (path: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
 
   const diffToDisplay = currentDiff || {
     filePath: 'frontend/src/Login.tsx',
@@ -151,14 +166,19 @@ export function Dashboard() {
   };
 
   const renderTree = (nodes: FileNode[], depth = 0) => {
-    return nodes?.map((node) => (
-      <div key={node.path} style={{ paddingLeft: `${depth * 12}px` }}>
-        <div
-          className={`flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-secondary cursor-pointer text-sm ${
-            node.status === 'modified' ? 'text-blue-600 font-semibold' : 'text-foreground'
-          }`}
-          onClick={() => {
-            if (!node.isDir) {
+    return nodes?.map((node) => {
+      const isCollapsed = collapsed.has(node.path);
+      return (
+        <div key={node.path} style={{ paddingLeft: `${depth * 12}px` }}>
+          <div
+            className={`flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-secondary cursor-pointer text-sm ${
+              node.status === 'modified' ? 'text-blue-600 font-semibold' : 'text-foreground'
+            }`}
+            onClick={() => {
+              if (node.isDir) {
+                toggleFolder(node.path);
+                return;
+              }
               setActiveTab('diff');
 
               setCurrentDiff({
@@ -186,33 +206,35 @@ export function Dashboard() {
                     modified: `// Failed to load file: ${err.message}`,
                   });
                 });
-            }
-          }}
-        >
-          {node.isDir ? (
-            <>
-              <ChevronDown className="w-3 h-3 text-muted-foreground" />
-              <Folder className="w-4 h-4 text-muted-foreground" />
-            </>
-          ) : (
-            <>
-              <ChevronRight className="w-3 h-3 text-transparent" />
-              <File className="w-4 h-4 text-muted-foreground" />
-            </>
-          )}
+            }}
+          >
+            {node.isDir ? (
+              <>
+                {isCollapsed
+                  ? <ChevronRight className="w-3 h-3 text-muted-foreground" />
+                  : <ChevronDown className="w-3 h-3 text-muted-foreground" />}
+                <Folder className="w-4 h-4 text-muted-foreground" />
+              </>
+            ) : (
+              <>
+                <ChevronRight className="w-3 h-3 text-transparent" />
+                <File className="w-4 h-4 text-muted-foreground" />
+              </>
+            )}
 
-          <span className="truncate">{node.name}</span>
+            <span className="truncate">{node.name}</span>
 
-          {node.status === 'modified' && (
-            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600">
-              modified
-            </span>
-          )}
+            {node.status === 'modified' && (
+              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600">
+                modified
+              </span>
+            )}
+          </div>
+
+          {node.isDir && !isCollapsed && node.children && renderTree(node.children, depth + 1)}
         </div>
-
-        {node.children && renderTree(node.children, depth + 1)}
-      </div>
-    ));
+      );
+    });
   };
 
   return (
