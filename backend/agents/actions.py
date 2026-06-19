@@ -1,7 +1,5 @@
 from enum import Enum
 
-stuffs = 2
-
 class AgentRole(str, Enum):
     CEO = "ceo"
     PRODUCT_MANAGER = "product_manager"
