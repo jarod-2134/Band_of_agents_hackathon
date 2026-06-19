@@ -180,30 +180,31 @@ class TestAgentLifecycle:
     async def test_assign_issue_to_agent(self, sync_client):
         client, db = sync_client
         agent_row = make_row(id=AGENT_ID)
+        task_row = make_row(id=42)
         setup_async_db(db, side_effect=[
-            make_mock_result(rows=[agent_row], scalar_value=AGENT_ID),  # agent exists check
+            make_mock_result(rows=[agent_row]),        # agent exists check
+            make_mock_result(rows=[task_row]),         # insert task returning id
             make_mock_result(),                        # update status to busy
-            make_mock_result(),                        # insert agent_task
         ])
-
+    
         from unittest.mock import MagicMock
         from main import registry
         mock_live_agent = MagicMock()
         mock_live_agent.inbox = AsyncMock()
         registry.get_agent.return_value = mock_live_agent
-
-        response = await client.post(f"{BASE}/{AGENT_ID}/assign", json={"issue_id": "550e8400-e29b-41d4-a716-446655440000"})
+    
+        response = await client.post(f"{BASE}/{AGENT_ID}/assign", json={"title": "Test Task", "description": "Do something"})
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "assigned"
-        assert data["issue_id"] == "550e8400-e29b-41d4-a716-446655440000"
+        assert data["task_id"] == 42
 
     @pytest.mark.asyncio
     async def test_assign_to_nonexistent_agent(self, sync_client):
         client, db = sync_client
-        setup_async_db(db, return_value=make_mock_result(scalar_value=None))
-
-        response = await client.post(f"{BASE}/9999/assign", json={"issue_id": "550e8400-e29b-41d4-a716-446655440000"})
+        setup_async_db(db, return_value=make_mock_result(rows=[]))
+    
+        response = await client.post(f"{BASE}/9999/assign", json={"title": "Test Task", "description": "Do something"})
         assert response.status_code == 404
 
 
