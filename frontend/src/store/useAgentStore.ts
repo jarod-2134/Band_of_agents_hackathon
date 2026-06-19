@@ -152,14 +152,8 @@ interface AgentState {
 // If VITE_API_URL is set, use it. Otherwise use relative URLs that go through the Vite proxy.
 // This makes the app work via localhost, ngrok, or any other tunnel without changing .env.
 export const API_URL = import.meta.env.VITE_API_URL || '';
-// For WebSockets, we must derive an absolute URL from the current window host.
-// ws:// for http://, wss:// for https://.
-function getWsBase(): string {
-  if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}`;
-}
-export const WS_URL = getWsBase();
+// WebSockets must connect directly to the backend (cannot be proxied through Vite dev server).
+export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
 
 let ws: WebSocket | null = null;
 
@@ -260,32 +254,47 @@ export const useAgentStore = create<AgentState>()(
       addTask: (task) => set((state) => ({ tasks: [...state.tasks, task] })),
 
       fetchRepos: async () => {
-        const { currentOrgSlug, currentRepoId } = get();
-        try {
-          const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos`);
-          const data = await res.json();
-          const repos = data.repositories || [];
-          set({ repos });
-          
-          if (repos.length > 0) {
-            const repoExists = repos.find((r: any) => r.fs_path === currentRepoId);
-            if (!currentRepoId || !repoExists) {
-              get().connectWebSocket(repos[0].fs_path);
-              set({ activeTab: 'graph', currentDiff: null });
-            } else {
-              get().connectWebSocket(currentRepoId);
+        const maxRetries = 6;
+        const retryDelayMs = 3000;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            const { currentOrgSlug, currentRepoId } = get();
+            const res = await apiFetch(`${API_URL}/orgs/${currentOrgSlug}/repos`);
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status}`);
             }
-          } else {
-            set({ currentRepoId: '', isConnected: false, fileTree: [], activeTab: 'graph', currentDiff: null });
-            if (ws) {
-              ws.close();
-              ws = null;
+            const data = await res.json();
+            const repos = data.repositories || [];
+            set({ repos });
+            
+            if (repos.length > 0) {
+              const repoExists = repos.find((r: any) => r.fs_path === currentRepoId);
+              if (!currentRepoId || !repoExists) {
+                get().connectWebSocket(repos[0].fs_path);
+                set({ activeTab: 'graph', currentDiff: null });
+              } else {
+                get().connectWebSocket(currentRepoId);
+              }
+            } else {
+              set({ currentRepoId: '', isConnected: false, fileTree: [], activeTab: 'graph', currentDiff: null });
+              if (ws) {
+                ws.close();
+                ws = null;
+              }
+            }
+            return; // success — stop retrying
+          } catch (e) {
+            if (attempt < maxRetries) {
+              console.warn(`fetchRepos failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${retryDelayMs / 1000}s...`, e);
+              await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            } else {
+              console.error("fetchRepos failed after all retries:", e);
             }
           }
-        } catch (e) {
-          console.error("Failed to fetch repos", e);
         }
       },
+
 
       fetchBranches: async (repoId: string) => {
         const { currentOrgSlug, repos } = get();
