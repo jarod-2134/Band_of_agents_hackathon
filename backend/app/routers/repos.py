@@ -525,13 +525,26 @@ async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayloa
     if not repo:
         raise HTTPException(status_code=404, detail="Parent repository missing.")
 
+    # 0. Check if branch already exists in DB to prevent overwriting valid ones
+    existing_db_branch_proxy = await db.execute(
+        text("SELECT id FROM branches WHERE repo_id = :repo_id AND name = :name"),
+        {"repo_id": repo_id, "name": payload.name}
+    )
+    if existing_db_branch_proxy.scalar():
+        raise HTTPException(status_code=400, detail="Branch already exists.")
+
     repo_path = resolve_repo_disk_path(org_slug, repo["name"])
+    git_repo = pygit2.Repository(repo_path)
     try:
-        git_repo = pygit2.Repository(repo_path)
         source_branch_ref = git_repo.lookup_reference(f"refs/heads/{payload.source_branch}")
         source_commit = git_repo.get(source_branch_ref.target)
         
-        # 1. Spin up the physical branch in the native git engine storage container
+        # 1. Cleanup any dangling physical branch not tracked by DB
+        existing_branch = git_repo.lookup_branch(payload.name)
+        if existing_branch:
+            existing_branch.delete()
+            
+        # 2. Spin up the physical branch in the native git engine storage container
         git_repo.create_branch(payload.name, source_commit)
         
         # FIX: In pygit2, use .id to access the OID, then cast it to a string for the 40-char SHA
@@ -540,7 +553,7 @@ async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayloa
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Native engine branch initialization failed: {str(e)}")
 
-    # 2. Database Metadata Tracking Tier Execution
+    # 3. Database Metadata Tracking Tier Execution
     try:
         # Dynamically fetch an active user ID to fulfill your table's fk_branches_created_by constraint
         user_proxy = await db.execute(text("SELECT id FROM users LIMIT 1"))
@@ -570,6 +583,13 @@ async def create_branch(org_slug: str, repo_id: str, payload: BranchCreatePayloa
         
     except Exception as e:
         await db.rollback()
+        # Rollback the physical git branch since DB registration failed
+        try:
+            b = git_repo.lookup_branch(payload.name)
+            if b:
+                b.delete()
+        except:
+            pass
         logger.error(f"Failed database mirror registration for branch {payload.name}: {e}")
         raise HTTPException(status_code=500, detail=f"Database tracking state registration failed: {e}")
     
@@ -693,7 +713,7 @@ async def merge_branch(org_slug: str, repo_id: str, payload: BranchMergePayload,
                 "branch": payload.target_branch,
                 "parent_shas": json.dumps([str(base_commit.id), str(head_commit.id)]),
                 "committed_at": datetime.now(timezone.utc),
-                "embedding": commit_embedding
+                "embedding": str(commit_embedding)
             }
         )
         await db.commit()
@@ -788,7 +808,7 @@ async def resolve_merge_conflict(org_slug: str, repo_id: str, payload: BranchMer
                 "branch": payload.target_branch,
                 "parent_shas": json.dumps([str(base_commit.id), str(head_commit.id)]),
                 "committed_at": datetime.now(timezone.utc),
-                "embedding": commit_embedding
+                "embedding": str(commit_embedding)
             }
         )
         await db.commit()
